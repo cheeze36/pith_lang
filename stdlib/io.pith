@@ -1,0 +1,6 @@
+###
+# Pith Standard IO Library
+###
+
+# This module provides functions for interacting with files and other IO devices.
+# Most functions in this module are native C implementations.

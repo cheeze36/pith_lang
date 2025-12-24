@@ -1,0 +1,3 @@
+Write success: true
+Read content: Hello, file IO!
+Bad read: void

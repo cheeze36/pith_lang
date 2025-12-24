@@ -1,0 +1,3 @@
+list<int> my_list = [10, 20, 30]
+foreach (int x in my_list):
+    print(x)

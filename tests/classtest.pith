@@ -1,0 +1,16 @@
+class Point:
+    int x
+    int y
+
+    define init(int x_val, int y_val):
+        this.x = x_val
+        this.y = y_val
+
+    define void move(int dx, int dy):
+        this.x = this.x + dx
+        this.y = this.y + dy
+
+Point p = new Point(10, 20)
+print(p.x)
+p.move(5, -5)
+print(p.x)

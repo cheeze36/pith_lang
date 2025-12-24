@@ -1,0 +1,16 @@
+###
+# Pith Standard Math Library
+###
+
+# Note: sqrt is a native function registered in the interpreter.
+
+# Returns the absolute value of a number.
+define float abs(float n):
+    if (n < 0):
+        return -n
+    return n
+
+# Returns the base to the exponent power.
+# This is a wrapper around the `^` operator.
+define float pow(float base, float exp):
+    return base ^ exp

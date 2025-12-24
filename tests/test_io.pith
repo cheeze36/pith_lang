@@ -1,0 +1,22 @@
+import "io"
+import "sys"
+
+string file_path = "test_output.tmp"
+string content = "Hello, file IO!"
+
+# Test writing a file
+bool success = io.write_file(file_path, content)
+print("Write success:", success)
+
+# Test reading the file back
+string read_content = io.read_file(file_path)
+print("Read content:", read_content)
+
+# Test reading a non-existent file (should return void)
+string bad_content = io.read_file("non_existent_file.tmp")
+print("Bad read:", bad_content)
+
+# This part should not be executed if exit works
+# print("This should not print.")
+sys.exit(0)
+print("This should definitely not print.")

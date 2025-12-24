@@ -1,0 +1,9 @@
+define int add(int a, int b):
+    return a + b
+
+print(add(5, 7))
+
+define void say_hello():
+    print("Hello, world!")
+
+say_hello()

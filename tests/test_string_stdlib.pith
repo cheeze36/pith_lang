@@ -1,0 +1,10 @@
+# No import needed for native methods
+
+string test_str = "  hello, world  "
+print(test_str.trim())
+
+list<string> parts = "a,b,c".split(",")
+print(parts[0])
+print(parts[2])
+
+print(parts.join("-"))

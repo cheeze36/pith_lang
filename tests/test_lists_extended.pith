@@ -1,0 +1,7 @@
+list<int> my_list = []
+my_list.append(100)
+my_list.append(200)
+my_list.append(300)
+print(my_list[0])
+print(my_list[2])
+print(my_list.len())

@@ -1,0 +1,6 @@
+###
+# Pith Standard System Library
+###
+
+# This module provides access to system-specific parameters and functions.
+# Most functions in this module are native C implementations.

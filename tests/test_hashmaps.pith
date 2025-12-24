@@ -1,0 +1,13 @@
+# Test valid hashmap creation and access
+map<string, float> my_map = {"version": 0.1}
+print(my_map["version"])
+
+# Test valid assignment
+my_map["version"] = 0.2
+print(my_map["version"])
+
+# Test that assigning the wrong type fails.
+# The interpreter should exit with an error, so the following lines will not be reached.
+print("Testing invalid assignment...")
+my_map["version"] = "should_fail" 
+print("This line should not be printed.")

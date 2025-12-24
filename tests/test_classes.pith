@@ -1,0 +1,36 @@
+class Greeter:
+    string greeting
+
+    define init(string greet_msg):
+        this.greeting = greet_msg
+
+    define void say_hello(string name):
+        print(this.greeting + ", " + name + "!")
+
+class Counter:
+    int count
+
+    define init():
+        this.count = 0
+
+    define void increment():
+        this.count = this.count + 1
+
+    define int get_value():
+        return this.count
+
+# --- Test Greeter ---
+Greeter g1 = new Greeter("Hello")
+g1.say_hello("World")
+
+Greeter g2 = new Greeter("Hi")
+g2.say_hello("Pith")
+
+# --- Test Counter ---
+Counter c = new Counter()
+print(c.get_value())
+c.increment()
+c.increment()
+print(c.get_value())
+c.count = 100
+print(c.get_value())

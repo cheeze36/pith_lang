@@ -1,0 +1,9 @@
+int[3] fixed_array
+fixed_array[0] = 10
+fixed_array[1] = 20
+fixed_array[2] = 30
+print(fixed_array[1])
+
+# The following line is commented out because it is expected to fail at runtime.
+# The 'append' function is designed for dynamic lists, not fixed-size arrays.
+# append(fixed_array, 40)

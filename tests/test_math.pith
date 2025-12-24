@@ -1,0 +1,23 @@
+import "math"
+
+# Test native sqrt
+print(math.sqrt(16.0))
+
+# Test Pith-implemented abs
+print(math.abs(-5.5))
+print(math.abs(10.0))
+
+# Test Pith-implemented pow
+print(math.pow(2.0, 8.0))
+
+# Test native trig functions
+# Note: These may have slight floating point variations
+print(math.sin(0.0))
+print(math.cos(0.0))
+
+# Test native floor and ceil
+print(math.floor(3.7))
+print(math.ceil(3.2))
+
+# Test native log
+print(math.log(1.0))

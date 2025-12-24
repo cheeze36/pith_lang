@@ -1,0 +1,3 @@
+// This test is expected to produce no output.
+// It's used to test the native_debug function, which prints to stderr.
+// native_debug("hello") 

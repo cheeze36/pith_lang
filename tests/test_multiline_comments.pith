@@ -1,0 +1,13 @@
+###
+This is a multi-line comment.
+It should be ignored by the tokenizer.
+###
+
+print("Hello from outside the comment!")
+
+### Another one ###
+print("This should print.")
+
+###
+print("This should NOT print.")
+###

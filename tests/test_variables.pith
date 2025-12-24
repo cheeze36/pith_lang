@@ -1,0 +1,9 @@
+int x = 10
+print(x)
+x = 20
+print(x)
+
+string s = "hello"
+print(s)
+s = "world"
+print(s)

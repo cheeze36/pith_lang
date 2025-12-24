@@ -1,0 +1,56 @@
+class Book:
+    string title
+    string author
+    string year
+
+    define init(string t, string a, string y):
+        this.title = t
+        this.author = a
+        this.year = y
+
+list<Book> library = []
+
+define void add_book():
+    print("--- Add a New Book ---")
+    string t = input("Enter title: ")
+    string a = input("Enter author: ")
+    string y = input("Enter year: ")
+    
+    Book b = new Book(t, a, y)
+    library.append(b)
+    print("Book added successfully!")
+
+define void list_books():
+    print("--- Library Catalog ---")
+    if (library.len() == 0):
+        print("The library is empty.")
+    else:
+        foreach (Book b in library):
+            print(b.title, "by", b.author, "(", b.year, ")")
+
+print("Welcome to the Pith Library Manager")
+
+bool running = true
+
+while (running):
+    print("")
+    print("1. Add Book")
+    print("2. List Books")
+    print("3. Exit")
+    
+    string choice = input("Select an option: ")
+    print("") # Spacer
+    
+    switch (choice):
+        case "1":
+            add_book()
+            break
+        case "2":
+            list_books()
+            break
+        case "3":
+            print("Goodbye!")
+            running = false
+            break
+        default:
+            print("Invalid option. Please try again.")
