@@ -1,6 +1,6 @@
 ### **Pith Language: A Technical Overview**
 
-Pith is an imperative, dynamically-typed scripting language that blends syntax from C-family languages with Python-like structural conventions. It is executed by a tree-walking interpreter written in C, which processes a source file through a classic pipeline: **Tokenizer -> Parser (AST Builder) -> Interpreter**.
+Pith is an currently experintal imperative typed scripting language that blends syntax from C-family languages with Python-like structural conventions. It is executed by a tree-walking interpreter written in C, which processes a source file through a classic pipeline: **Tokenizer -> Parser (AST Builder) -> Interpreter**.
 
 #### **1. Execution Model**
 
