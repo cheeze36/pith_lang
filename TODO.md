@@ -1,47 +1,64 @@
 # Pith Language Project - TODO List
 
-This document tracks the major features, bug fixes, and improvements for the Pith language.
+This document tracks the major features, bug fixes, and improvements for the Pith language. Items are grouped by priority and include concrete next steps.
 
-## 1. High Priority & Core Features
+## 0. Project goals
+- Keep Pith statically-typed at the surface: explicit type annotations for variables, function parameters, and return types remain required.
+- Improve runtime robustness and add optional static checks in future (design decisions below require your input).
 
--   **[x] Garbage Collector (GC):** Implemented a Mark-and-Sweep garbage collector.
-    -   **Details:**
-        1.  Defined `ObjHeader` and `ObjType` for all heap objects.
-        2.  Implemented `allocate_obj` to track allocations.
-        3.  Implemented `mark` phase starting from `global_env` and native registries.
-        4.  Implemented `sweep` phase to free unmarked objects.
-        5.  Added `free_all_objects()` for cleanup at exit.
-    -   **Note:** Automatic collection during execution is currently disabled to avoid issues with C-stack roots. It can be enabled once a shadow stack or handle system is in place.
+## 1. High Priority & Core Features (Must-Have)
 
--   **[x] Multi-line Comments:** A common feature for documenting larger blocks of code.
-    -   **Action:** Update the tokenizer (`tokenizer.c`) to recognize and ignore Pith-style multi-line comments (`### ... ###`).
+- [x] Garbage Collector (GC) — implemented (Mark-and-Sweep)
+- [x] Multi-line comments (`### ... ###`) and single-line comments `#` (standardized to `#`)
+- [x] Core stdlib: `math`, `io`, `sys`, `str`, `list` methods implemented in C
+- [x] `isinstance()` native helper and class/instance semantics
+- [x] Tests: A comprehensive test-suite under `tests/` with expected outputs; `run_test.bat` for Windows test runs
 
--   **[x] Verify `input()` Function:** The native `input()` function has been tested via the `examples/library.pith` program.
+### 1.1. Bug fixes that were just completed
+- [x] Parser mis-parsing `pass` inside class bodies (fixed) — prevented creation of NULL field names.
 
-## 2. Standard Library Expansion
+## 2. Medium Priority (Important improvements)
 
--   **[x] `math` Module:** Added more native functions to the `math` module.
-    -   **Functions added:** `abs`, `pow` (in Pith), `sin`, `cos`, `tan`, `floor`, `ceil`, `log` (native).
+- [x] Runtime enforcement for `list<T>` element types (implemented)
+  - Option A (runtime): store `value_type` in `List` and check on `append`, `insert`, and literal construction. Report a runtime type error on mismatch.
+  - Option B (static): add a small static type checker that runs before interpretation and rejects incorrect list usage.
+  - Question for you: Which option do you prefer? (You said you want to stay statically typed at the surface — do you want to enforce list element types at runtime first or add a static checker?)
 
--   **[x] `io` and `sys` Modules:** Created new modules for file and system operations.
-    -   **`io` functions:** `read_file(path)`, `write_file(path, content)`.
-    -   **`sys` functions:** `exit(code)`.
+- [x] Strengthen string handling and escapes
+  - Properly support common escape sequences (`\n`, `\t`, `\\`, `\"`) in the tokenizer and parser.
+  - Decide and document Unicode handling strategy (UTF-8 friendly operations vs full Unicode support).
 
--   **[ ] `string` and `list` Methods:** Implement the remaining methods listed in the design document.
-    -   **`string`:** `upper()`, `lower()`, `replace()`, `startswith()`, `endswith()`, `contains()`.
-    -   **`list`:** `pop()`, `remove(index)`, `insert(index, value)`, `clear()`.
+- [ ] File API improvements
+  - Add `io.open(path, mode)` returning a `File` object, `file.read()`, `file.readline()`, `file.write()`, `file.close()`.
 
-## 3. Language Polish and Refinements
+- [ ] Better error messages and source-location reporting
+  - Improve `report_error` to show source line and point to the offending token.
 
--   **[ ] Advanced File Handling:** Implement a more powerful, stream-based file API.
-    -   **Action:** Introduce a `File` object type.
-    -   **Functions:** `io.open(path, mode)`, `file.read()`, `file.readline()`, `file.write()`, `file.close()`.
+- [ ] GC stress tests and potential bug-hunt
+  - Tests that create many objects, closures, and long-lived references to validate GC correctness.
 
--   **[ ] Runtime Type Enforcement for Lists:**
-    -   **Action:** Currently, `list<int>` doesn't prevent appending a string. Update the `list_add` function and list literal creation logic in `interpreter.c` to perform runtime type checks based on a stored `value_type` in the `List` struct.
+## 3. Low Priority & Nice-to-Have
 
--   **[ ] Improved Error Reporting:**
-    -   **Action:** Enhance the `report_error` function to optionally print the line of source code where the error occurred, providing more context to the user.
+- [ ] Module system improvements
+  - Add module search path configuration, package-like directories, and better error reporting on import failure.
 
--   **[ ] AST Memory Management:**
-    -   **Action:** The `main.c` file has a `TODO` for freeing AST nodes. Implement a recursive `free_ast(ASTNode* node)` function to walk the entire AST and free all nodes and their associated values after execution is complete.
+- [ ] More stdlib (as-needed)
+  - Add `datetime`, `os` wrappers, richer `str`/`list` utilities.
+
+- [ ] Optional static type checker (longer term)
+  - A separate `pithc` tool that performs static checks and emits warnings/errors before running the interpreter.
+
+- [ ] CI integration (Windows runner)
+  - Add a GitHub Actions workflow that builds on Windows and runs `run_test.bat` to validate regressions automatically.
+
+## 4. Tests & QA
+- [x] Existing test-suite covers arithmetic, control flow, classes, inheritance, stdlib functions, IO, lists, maps, and many features.
+- [x] Add regression test that explicitly asserts `pass` inside classes does not create fields
+- [ ] Add tests for error conditions: undefined variable, type mismatch, index out of bounds, division by zero
+- [ ] Add tests to exercise GC (create many lists/instances and force collection)
+
+## 5. Implementation & Code Hygiene
+- [ ] Replace direct `realloc()` uses with a safe helper that preserves the old pointer on failure (address clang-tidy warnings)
+- [ ] Audit memory ownership and `value_copy()` semantics to avoid double-free on some code paths
+- [ ] Ensure `free_ast()` is always invoked after program execution to free parser allocations
+

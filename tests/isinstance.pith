@@ -1,0 +1,17 @@
+class MyClass:
+    pass
+
+class AnotherClass:
+    pass
+
+MyClass my_instance = new MyClass()
+AnotherClass another_instance = new AnotherClass()
+
+print(isinstance(my_instance, MyClass))
+print(isinstance(my_instance, AnotherClass))
+print(isinstance(another_instance, MyClass))
+print(isinstance(another_instance, AnotherClass))
+
+# Test with non-objects
+print(isinstance(123, MyClass))
+print(isinstance("hello", AnotherClass))

@@ -1,0 +1,202 @@
+import "math"
+import "sys"
+import "integer"
+
+# --- Random Number Generator (LCG) ---
+class Random:
+    int seed
+
+    define init(int seed):
+        this.seed = seed
+
+    define int next():
+        # Simple LCG parameters
+        this.seed = (this.seed * 1103515245 + 12345) % 2147483647
+        return this.seed
+
+    define int range(int min, int max):
+        int val = this.next()
+        if (val < 0):
+            val = -val
+        return min + (val % (max - min + 1))
+
+# --- Game Entities ---
+
+class Entity:
+    string name
+    int hp
+    int max_hp
+    int attack_power
+
+    define init(string name, int hp, int attack):
+        this.name = name
+        this.max_hp = hp
+        this.hp = hp
+        this.attack_power = attack
+
+    define bool is_alive():
+        return this.hp > 0
+
+    define void take_damage(int amount):
+        string amt_str = integer.toString(amount)
+        this.hp = this.hp - amount
+        string hp_str = integer.toString(this.hp)
+        string max_hp_str = integer.toString(this.max_hp)
+        if (this.hp < 0):
+            this.hp = 0
+        print(this.name + " takes " + amt_str + " damage! (HP: " + hp_str + "/" + max_hp_str + ")")
+
+    define void heal(int amount):
+        this.hp = this.hp + amount
+        if (this.hp > this.max_hp):
+            this.hp = this.max_hp
+        print(this.name + " heals for " + amount + ". (HP: " + this.hp + "/" + this.max_hp + ")")
+
+class Player extends Entity:
+    list<string> inventory
+    int potions
+
+    define init(string name):
+        Entity.init(this, name, 100, 15)
+        this.inventory = []
+        this.potions = 3
+
+    define void use_potion():
+        if (this.potions > 0):
+            this.potions = this.potions - 1
+            this.heal(30)
+            print("You used a potion. Potions left: " + this.potions)
+        else:
+            print("You don't have any potions left!")
+
+class Enemy extends Entity:
+    int xp_value
+
+    define init(string name, int hp, int attack, int xp):
+        Entity.init(this, name, hp, attack)
+        this.xp_value = xp
+
+# --- Game Logic ---
+
+class Game:
+    Player player
+    Random rng
+    bool running
+
+    define init():
+        this.rng = new Random(1234) # Fixed seed for now, ideally time-based if available
+        this.running = true
+        print("Welcome to the Pith Dungeon!")
+        print("What is your name, hero?")
+        string name = input()
+        this.player = new Player(name)
+        print("Welcome, " + name + ". Your journey begins.")
+
+    define void start():
+        while (this.running):
+            print("\n--------------------------------")
+            print("You are standing in a dark corridor.")
+            print("1. Explore")
+            print("2. Check Status")
+            print("3. Rest (Heal)")
+            print("4. Quit")
+            print("Choose an action (1-4): ")
+            
+            string choice = input()
+            
+            if (choice == "1"):
+                this.explore()
+            elif (choice == "2"):
+                this.print_status()
+            elif (choice == "3"):
+                this.player.use_potion()
+            elif (choice == "4"):
+                print("Goodbye, hero.")
+                this.running = false
+            else:
+                print("Invalid choice.")
+            
+            if (this.player.is_alive() == false):
+                print("You have perished. Game Over.")
+                this.running = false
+
+    define void print_status():
+        print("\n--- Status ---")
+        print("Name: " + this.player.name)
+        print("HP: " + this.player.hp + "/" + this.player.max_hp)
+        print("Attack: " + this.player.attack_power)
+        print("Potions: " + this.player.potions)
+        print("--------------")
+
+    define void explore():
+        print("You venture deeper into the dungeon...")
+        int encounter = this.rng.range(1, 10)
+        
+        if (encounter <= 3):
+            print("You found a quiet spot. Nothing happens.")
+        elif (encounter <= 5):
+            print("You found a hidden stash! You got a potion.")
+            this.player.potions = this.player.potions + 1
+        else:
+            this.combat_encounter()
+
+    define void combat_encounter():
+        Enemy enemy = this.generate_enemy()
+        print("A wild " + enemy.name + " appears!")
+        
+        while (enemy.is_alive() and this.player.is_alive()):
+            print("\nCombat: " + this.player.name + " vs " + enemy.name)
+            print("1. Attack")
+            print("2. Use Potion")
+            print("3. Run")
+            
+            string action = input()
+            
+            if (action == "1"):
+                # Player attacks
+                int dmg = this.rng.range(this.player.attack_power - 5, this.player.attack_power + 5)
+                print("You attack the " + enemy.name + "!")
+                enemy.take_damage(dmg)
+                
+                if (enemy.is_alive()):
+                    # Enemy attacks back
+                    int enemy_dmg = this.rng.range(enemy.attack_power - 2, enemy.attack_power + 2)
+                    print("The " + enemy.name + " attacks you!")
+                    this.player.take_damage(enemy_dmg)
+                    
+            elif (action == "2"):
+                this.player.use_potion()
+                # Enemy still attacks
+                if (enemy.is_alive()):
+                    int enemy_dmg = this.rng.range(enemy.attack_power - 2, enemy.attack_power + 2)
+                    print("The " + enemy.name + " attacks you while you drink!")
+                    this.player.take_damage(enemy_dmg)
+                    
+            elif (action == "3"):
+                int escape_chance = this.rng.range(1, 10)
+                if (escape_chance > 3):
+                    print("You managed to escape!")
+                    return
+                else:
+                    print("Failed to escape!")
+                    int enemy_dmg = this.rng.range(enemy.attack_power - 2, enemy.attack_power + 2)
+                    this.player.take_damage(enemy_dmg)
+            else:
+                print("Invalid command.")
+
+        if (this.player.is_alive()):
+            print("You defeated the " + enemy.name + "!")
+            print("You gain " + enemy.xp_value + " XP (XP system not implemented yet).")
+
+    define Enemy generate_enemy():
+        int roll = this.rng.range(1, 3)
+        if (roll == 1):
+            return new Enemy("Goblin", 30, 8, 10)
+        elif (roll == 2):
+            return new Enemy("Skeleton", 45, 12, 20)
+        else:
+            return new Enemy("Orc", 60, 15, 30)
+
+# --- Main ---
+Game g = new Game()
+g.start()

@@ -1,0 +1,34 @@
+# Test file for class inheritance
+
+class Animal:
+    define void speak():
+        print("The animal makes a sound.")
+
+class Dog extends Animal:
+    # Override the speak method for Dog
+    define void speak():
+        print("The dog barks.")
+
+class Cat extends Animal:
+    # Override the speak method for Cat
+    define void speak():
+        print("The cat meows.")
+
+# --- Test Execution ---
+
+# Create an instance of the original class and call its method
+Animal my_animal = new Animal()
+my_animal.speak()
+
+# Create an instance of the child class and call its overridden method
+Dog my_dog = new Dog()
+my_dog.speak()
+
+# Create another child instance
+Cat my_cat = new Cat()
+my_cat.speak()
+
+# --- Test isinstance with inheritance ---
+print(isinstance(my_dog, Dog))
+print(isinstance(my_dog, Animal))
+print(isinstance(my_dog, Cat))

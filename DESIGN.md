@@ -1,333 +1,142 @@
 # Pith Language Specification
 
-This document serves as the official specification for the Pith programming language.
+This document is the working specification for the Pith programming language. It describes the syntax, core types, runtime model, and notable implementation behaviors as of the current implementation.
 
 ## 1. General Syntax
 
 ### 1.1. Comments
 Pith supports both single-line and multi-line comments.
 
-**Single-line comments** start with the `#` symbol. All text from the `#` to the end of the line is ignored by the tokenizer.
+- Single-line comments: `#` (standardized). All text from the comment marker to the end of the line is ignored by the tokenizer.
 
 ```pith
-# This is a full-line comment.
-int x = 10 # This is also a valid comment.
+# This is a full-line comment
+int x = 10 # trailing comment
 ```
 
-**Multi-line comments** are enclosed in `###` markers. Everything between the opening `###` and the closing `###` is ignored, spanning multiple lines if necessary.
+- Multi-line comments are enclosed in `###` markers. Everything between the opening `###` and the closing `###` is ignored by the tokenizer (can span multiple lines).
 
 ```pith
 ###
 This is a multi-line comment.
 It can span multiple lines.
 ###
-print("Hello") ### This is also a valid multi-line comment ###
+print("Hello") ### inline multi-line comment ###
 ```
 
-### 1.2. Blocks and Indentation
-Pith uses indentation to define code blocks. A block is started with a colon (`:`) and a newline, followed by an indented section of code. The block ends when the indentation returns to the previous level.
+### 1.2. Strings and escape sequences
+String literals are delimited with double-quotes (`"...")`). Common escape sequences are recognized and translated by the tokenizer: `\n`, `\t`, `\\`, `\"`, `\r`.
+
+### 1.3. Blocks and Indentation
+Pith uses indentation to define code blocks. A block is started with a colon (`:`) and a newline, followed by an indented section. A block ends when the indentation returns to the previous level.
 
 ```pith
 if (x > 5):
-    print("x is greater than 5") # This is inside the if-block
-print("This is outside the if-block")
+    print("x is greater than 5")
+print("Outside the if-block")
 ```
+
+Note: the tokenizer emits `INDENT` / `DEDENT` tokens for block handling. The parser accepts `pass` as a no-op statement which is commonly used inside empty class bodies.
 
 ## 2. Data Types
 
 ### 2.1. Primitive Types
-Pith has a set of primitive data types that are passed by value.
+Pith currently exposes the following primitive types (value semantics):
 
-- `int`: A 32-bit signed integer.
-- `float`: A 32-bit floating-point number.
-- `bool`: A boolean value, either `true` or `false`.
-- `string`: A sequence of characters.
-- `void`: A special type representing the absence of a value, used for function return types. Variables cannot be declared as `void`.
+- `int`: 32-bit signed integer
+- `float`: 32-bit floating-point number
+- `bool`: boolean (`true` / `false`)
+- `string`: heap-allocated C string
+- `void`: absence of a value (used for function return type or non-value)
 
-### 2.2. Reference Types
-These types are handled by reference (or pointer). Assigning them or passing them to functions copies the reference, not the underlying data.
+### 2.2. Reference / Heap Types
+Reference (heap-allocated) types are managed by the runtime and passed by reference (assigning or passing copies the reference):
 
-- `list<T>`: A dynamic, ordered collection of elements of type `T`. **Note: Type enforcement for list elements is not yet implemented.**
-- `T[size]`: A fixed-size array of `size` elements of type `T`.
-- `map<K, V>`: A collection of key-value pairs. Keys (`K`) must be strings, and values (`V`) are strongly typed.
-- `class`: A user-defined data structure containing fields and methods.
-- `module`: A container for functions and variables loaded via the `import` statement.
+- `list<T>`: dynamic, ordered collection. The syntax `list<int> my_list = [...]` is used; at present, element type enforcement is not enforced at compile-time. Runtime enforcement for `list<T>` operations is on the TODO list.
+- `T[size]`: fixed-size arrays (e.g., `int[3] arr`) created with a compile-time size expression.
+- `map<string, V>`: hashmap keyed by strings, with a value type `V`. Keys must be strings.
+- `class`: user-defined class definitions with fields and methods.
+- `module`: namespaces created by `import`.
+
+Notes and current limitations:
+- `list<T>` element type enforcement is not yet implemented — you can currently append any `Value` to a list created with a `list<T>` annotation. See TODO for plans to enforce runtime checks (or to add a static type checker).
+- `map<K, V>` requires `K` to be `string` in the current implementation.
 
 ## 3. Variables and Scope
-Variables are declared with their type. Pith uses lexical (or block) scoping. A variable declared inside a block (like a loop or `if` statement) is only accessible within that block.
+
+- Variables are declared with an explicit type: `int x = 10`. Pith uses lexical (block) scoping. Variables declared inside a block are not visible outside it.
 
 ```pith
-int x = 10 # Global scope
-
+int x = 10
 if (x == 10):
-    int y = 20 # Local to the if-block
+    int y = 20
     print(y)
-
-# print(y) # This would cause an "Undefined variable" error.
+# print(y) would be an undefined-variable error
 ```
 
 ## 4. Operators
 
-- **Arithmetic**: `+`, `-`, `*`, `/`, `%` (modulo), `^` (power)
-- **Comparison**: `==`, `!=`, `<`, `>`, `<=`, `>=`
-- **Logical**: `and`, `or`, `!` (not)
+- Arithmetic: `+`, `-`, `*`, `/`, `%` (mod), `^` (power)
+- Comparison: `==`, `!=`, `<`, `>`, `<=`, `>=`
+- Logical: `and`, `or`, `!` (not)
+
+Type behavior is strict: arithmetic expects numeric operands; comparisons require type-compatible operands (strings compare by content, ints/floats by numeric value).
 
 ## 5. Control Flow
 
-### 5.1. `if / elif / else`
-Pith supports standard conditional statements.
+- `if / elif / else` with indentation blocks.
+- `while`, `do : ... while (cond)`
+- `foreach (T x in collection):` iterates lists/arrays.
+- C-style `for (init; cond; inc):` supported and creates its own loop scope.
+- `switch(expr): case ...` supports fall-through unless `break` is used.
+- `break`, `continue`, and `pass` behave as expected.
 
-```pith
-if (x < 10):
-    print("x is small")
-elif (x < 100):
-    print("x is medium")
-else:
-    print("x is large")
-```
+## 6. Built-in IO and Stdlib
 
-### 5.2. Loops
+- Global natives: `print()`, `input()`, `clock()`, `isinstance()`
+- Modules in `stdlib/` are importable with `import "name"`. The interpreter will first try `stdlib/name.pith` then `name.pith` in the working directory.
 
-#### `while` Loop
-Executes a block as long as a condition is true.
-```pith
-int i = 0
-while (i < 3):
-    print(i)
-    i = i + 1
-```
+Native modules provided:
+- `math`: `sqrt`, `sin`, `cos`, `tan`, `abs`, `pow`, `floor`, `ceil`, `log`
+- `io`: `read_file(path)`, `write_file(path, content)` (note: `read_file` returns `void` on failure)
+- `sys`: `exit(code)`
+- `str`: `replace`, `startswith`, `endswith`, `contains`, `trim`, `upper`, `lower`, `split`, `len`
+- `list` native methods: `len`, `append`, `join`, `pop`, `remove`, `insert`, `clear`
 
-#### `do-while` Loop
-Executes a block once, and then continues as long as a condition is true.
-```pith
-int j = 0
-do:
-    print(j)
-    j = j + 1
-while (j < 3)
-```
-
-#### `foreach` Loop
-Iterates over the elements of a list or array.
-```pith
-list<int> my_list = [10, 20, 30]
-foreach (int item in my_list):
-    print(item)
-```
-
-#### C-Style `for` Loop
-A traditional `for` loop with an initializer, a condition, and an increment expression. The initializer creates a new scope for the loop variable.
-```pith
-for (int i = 0; i < 5; i = i + 1):
-    print(i)
-```
-
-### 5.3. `switch` Statement
-Evaluates an expression and executes the block of the first matching `case`. If no `break` statement is used, execution will "fall through" to subsequent cases.
-
-```pith
-switch(x):
-    case 1:
-        print("one")
-        break
-    case 2:
-    case 3:
-        print("two or three")
-        break
-    default:
-        print("other")
-```
-
-### 5.4. Control Flow Keywords
-- `break`: Immediately exits the innermost loop (`while`, `do-while`, `for`, `foreach`) or `switch` statement.
-- `continue`: Skips the rest of the current loop iteration and proceeds to the next one.
-- `pass`: A null operation. It does nothing and can be used as a placeholder.
-
-## 6. Collections
-
-### 6.1. Dynamic Lists
-A resizeable, ordered collection.
-- **Declaration**: `list<type> name = [value1, value2, ...]`
-
-### 6.2. Fixed-Size Arrays
-An array with a size known at compile time.
-- **Declaration**: `type[size] name`
-
-### 6.3. Hashmaps
-A strongly-typed collection of key-value pairs. Keys must be strings.
-- **Declaration**: `map<string, type> name = {key1: value1, ...}`
-
-## 7. Functions
-Functions are defined using the `define` keyword. Return types and parameter types are required.
-
-```pith
-define int add(int a, int b):
-    return a + b
-
-define void say_hello():
-    print("Hello!")
-```
-
-## 8. Built-in IO
-
-### 8.1. `print` Statement
-The `print` statement evaluates one or more expressions, converts them to strings, and prints them to the standard output, followed by a newline. Multiple arguments are separated by a single space.
-
-```pith
-print("Hello, world!")
-print("The value of x is:", 10)
-```
-
-### 8.2. `input()` Function
-The `input()` function is a built-in native function that reads a line of text from the standard input and returns it as a string. It can optionally take a string argument to use as a prompt.
-
-```pith
-string name = input("Enter your name: ")
-print("Hello,", name)
-```
+Note: native methods are implemented in C and available via field access on string/list values (e.g., `"a,b".split(",")`, `my_list.append(1)`).
 
 ## 9. Classes
-Classes group data (fields) and functions that operate on that data (methods).
 
-- **Declaration**: Use the `class` keyword.
-- **Fields**: Must be declared with their type at the top of the class body.
-- **Constructor**: A special method named `init` is called when a new instance is created.
-- **Methods**: Functions defined within a class.
-- **Instantiation**: Use the `new` keyword.
-- **Access**: Use the `.` operator to access fields and methods. The `this` keyword refers to the current instance.
+- Declared with `class Name:`. Fields are declared at the top of the body, methods with `define`.
+- `init` is treated as the constructor and is invoked by `new Name(...)` during instance creation; fields are initialized to `void` by default.
+- Inheritance is supported with `class Child extends Parent:` — parent methods and fields are copied to the child class at definition time.
+- `isinstance(obj, Class)` is provided as a native function which walks the instance's class chain to check membership.
+- `this` is available inside methods as the instance receiver.
 
-```pith
-class Counter:
-    int count
+## 10. REPL and Execution
 
-    define init():
-        this.count = 0
+- Running `pith` with no arguments starts the REPL. `pith -i script.pith` runs the script then drops into REPL with the script's environment preserved.
+- The REPL supports multi-line statements (blocks) and prints the value of expressions automatically.
+- Runtime errors are reported via `report_error` and typically terminate execution when running a file; in the REPL they are shown without exiting the session.
 
-    define void increment():
-        this.count = this.count + 1
+## 11. Debugging
 
-Counter c = new Counter()
-c.increment()
-```
+- `debug.h` contains compile-time flags to trace tokenizer, parser, interpreter, environment ops, memory events, native calls, and module imports. Enable these for deep tracing during development.
 
-## 10. Modules and Standard Library
+## 12. Memory Management
 
-### 10.1. `import` System
-Pith uses a namespaced module system. `import "foo"` loads the code from `stdlib/foo.pith` (or `foo.pith`) into a `module` object named `foo`.
+- Pith uses a mark-and-sweep GC for heap-managed types (lists, maps, functions, modules, classes, instances, bound methods, env nodes).
+- Objects are allocated via `allocate_obj` which attaches an `ObjHeader` used by the GC.
+- The interpreter uses a temporary root stack (via `gc_push_root` / `gc_pop_root`) to protect temporaries on the C stack during allocations and evaluation.
 
-```pith
-import "math"
-print(math.sqrt(16)) # Access sqrt from the math module
-```
+## 13. Known Limitations & TODOs
 
-### 10.2. Global Native Functions
-A small number of native functions are available in the global scope without an import.
-- `clock()`: Returns the number of seconds since the program started.
+- `list<T>` runtime or compile-time enforcement: runtime enforcement has been implemented (lists created with a declared `list<T>` will enforce element types at runtime on `append`/`insert` and on initializer list literals). A separate static checker is still a planned enhancement.
+- Strings are C `char*` buffers; escape sequence handling and Unicode support are limited.
+- The import resolution is simple (tries `stdlib/` first then local file) — package/module system could be improved.
 
-### 10.3. Native Methods
-Some built-in types have native methods that can be called with the `.` operator.
 
-- **`string` Methods**:
-    - `len()`: Returns the length of the string.
-    - `trim()`: Returns a new string with leading/trailing whitespace removed.
-    - `split(delimiter)`: Returns a `list<string>` split by the delimiter.
-    - `upper()`: (Not Yet Implemented)
-    - `lower()`: (Not Yet Implemented)
-    - `replace(find, replace)`: (Not Yet Implemented)
-    - `startswith(prefix)`: (Not Yet Implemented)
-    - `endswith(suffix)`: (Not Yet Implemented)
-    - `contains(substring)`: (Not Yet Implemented)
 
-- **`list` Methods**:
-    - `len()`: Returns the number of elements in the list.
-    - `append(item)`: Adds an item to the end of a dynamic list.
-    - `join(delimiter)`: Joins the list of strings into a single string.
-    - `pop()`: (Not Yet Implemented)
-    - `remove(index)`: (Not Yet Implemented)
-    - `insert(index, value)`: (Not Yet Implemented)
-    - `clear()`: (Not Yet Implemented)
+---
 
-### 10.4. Standard Modules
-- **`math`**: Provides mathematical functions.
-    - `sqrt(n)`
-    - `sin(n)`
-    - `cos(n)`
-    - `tan(n)`
-    - `abs(n)`
-    - `pow(base, exp)`
-    - `floor(n)`
-    - `ceil(n)`
-    - `log(n)`
-- **`io`**: Provides basic file input/output operations.
-    - `read_file(path)`: Reads an entire file into a string. Returns `void` if the file cannot be read.
-    - `write_file(path, content)`: Writes a string to a file, overwriting it. Returns `true` on success and `false` on failure.
-- **`sys`**: Provides access to system-specific functions.
-    - `exit(code)`: Terminates the program with the given integer exit code.
-
-## 11. The REPL (Read-Eval-Print Loop)
-Running the interpreter with no arguments starts the interactive REPL.
-
-- **Multi-line Input**: The REPL automatically detects incomplete statements (like those ending in `:`) and allows for multi-line input. A blank line finishes the block.
-- **Error Handling**: Runtime errors are caught and displayed without terminating the REPL session.
-- **Expression Printing**: If a line of input evaluates to an expression, the result is automatically printed.
-
-## 12. Debugging System
-The interpreter includes a debugging system controlled by flags in `debug.h`. To use it, uncomment the desired flag in `debug.h` and recompile.
-
-### 12.1. `DEBUG_TRACE_TOKENIZER`
-Traces the execution of the tokenizer, showing each character as it is processed. Useful for debugging syntax errors at the lowest level.
-- `[TOKENIZER]`: Shows the character being processed.
-
-### 12.2. `DEBUG_DEEP_DIVE_PARSER`
-Traces the creation and linking of Abstract Syntax Tree (AST) nodes during the parsing phase.
-- `[DDP_CREATE]`: Logs the creation of a new AST node, its type, value, and memory address.
-- `[DDP_LINK]`: Shows how a child node is linked to a parent node, visualizing the tree structure.
-
-### 12.3. `DEBUG_DEEP_DIVE_INTERP`
-Traces the execution of the interpreter as it walks the AST. This is the most common and useful flag for debugging runtime logic.
-- `[DDI_EVAL]`: Shows when the `eval` function is entered for a specific AST node.
-- `[DDI_EXEC]`: Shows when the `exec` function is entered for a specific AST node.
-- `[DDI_ENV]`: Traces environment operations: defining, assigning, and getting variables.
-- `[DDI_BLOCK]`: Logs when the interpreter enters or exits a new block scope.
-- `[DDI_BINOP]`: Details the evaluation of a binary operation, showing the left and right operands and the result.
-- `[DDI_IMPORT]`: Logs the start of a module import.
-- `[DDI_MODULE_ACCESS]`: Logs when a member of a module is accessed.
-- `[DDI_CLASS_DEF]`: Logs when a class definition is being processed.
-- `[DDI_CLASS_METHOD]`: Logs when a method is being attached to a class.
-- `[DDI_NATIVE_METHOD]`: Logs when a native C method (like `len()` or `append()`) is called.
-- `[DDI_ARRAY_INIT]`: Logs the initialization of a fixed-size array.
-- `[DDI_ASSIGN_INDEX]`: Logs an assignment to a list, array, or hashmap index.
-- `[DDI_FOR_LOOP]`: Traces the execution of a C-style `for` loop's components (initializer, condition, increment).
-- `[DDI_FOREACH_LOOP]`: Traces the iteration of a `foreach` loop, showing the loop variable being defined.
-- `[DDI_REPL]`: Provides logs specific to the REPL's execution, such as the buffer being executed or the decision to print an expression.
-
-## 13. Memory Management
-Pith uses a Mark-and-Sweep Garbage Collector (GC) to manage heap-allocated memory.
-
-### 13.1. Managed Objects
-The following types are managed by the GC:
-- `List`
-- `HashMap`
-- `Func` (Function closures)
-- `Module`
-- `PithClass`
-- `PithInstance`
-- `BoundMethod`
-- `StructDef`
-- `StructInstance`
-- `Env` (Environment scopes)
-
-### 13.2. Object Header
-Every heap-allocated object is prefixed with an `ObjHeader` structure containing:
-- `type`: The type of the object (used for traversal).
-- `is_marked`: A flag used during the mark phase.
-- `next`: A pointer to the next object in the global linked list of all allocated objects.
-
-### 13.3. Garbage Collection Cycle
-The GC cycle consists of two phases:
-1.  **Mark Phase**: The GC starts from a set of "roots" (currently the global environment and native registries) and recursively marks all reachable objects by setting their `is_marked` flag to true.
-2.  **Sweep Phase**: The GC iterates through the global list of all objects. Any object with `is_marked` set to false is considered unreachable and is freed. Objects with `is_marked` set to true are kept, and their flag is reset for the next cycle.
-
-### 13.4. Current Limitations
--   **Automatic Collection**: Currently, the GC does not run automatically during execution to avoid collecting active objects referenced only by the C stack (which are not yet tracked as roots).
--   **Cleanup**: A full GC cycle is triggered at the end of the program execution to free all allocated memory, preventing memory leaks.
+This specification is intended to track actual implemented behavior. For language-design decisions that would change syntax or typing behavior (for example, introducing stricter compile-time type checking, generics beyond `list<T>`, or changes to comment markers), please review and approve the proposed syntax changes in the TODO section.

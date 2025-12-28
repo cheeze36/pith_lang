@@ -1,0 +1,21 @@
+--- String Tests ---
+Hello World!
+  HELLO WORLD!  
+  hello world!  
+true
+false
+true
+false
+true
+false
+three two three two
+one four one four
+nombtch
+--- List Tests ---
+40
+[10, 20, 30]
+20
+[10, 30]
+[a, b, c, d]
+[]
+0

@@ -1,0 +1,43 @@
+###
+# Test file for the new string and list standard library functions.
+###
+
+import "str"
+
+# --- String Method Tests ---
+print("--- String Tests ---")
+
+string s1 = "  Hello World!  "
+print(s1.trim())
+print(s1.upper())
+print(s1.lower())
+
+string s2 = "Pith Language"
+print(s2.startswith("Pith"))
+print(s2.startswith("Java"))
+print(s2.endswith("Language"))
+print(s2.endswith("Script"))
+print(s2.contains("Lang"))
+print(s2.contains("Nope"))
+
+string s3 = "one two one two"
+print(str.replace(s3, "one", "three"))
+print(str.replace(s3, "two", "four"))
+print(str.replace("nomatch", "a", "b"))
+
+# --- List Method Tests ---
+print("--- List Tests ---")
+
+list<int> l1 = [10, 20, 30, 40]
+print(l1.pop())
+print(l1)
+print(l1.remove(1))
+print(l1)
+
+list<string> l2 = ["a", "b", "d"]
+l2.insert(2, "c")
+print(l2)
+
+l2.clear()
+print(l2)
+print(l2.len())

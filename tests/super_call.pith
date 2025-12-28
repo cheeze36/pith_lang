@@ -1,0 +1,22 @@
+class Animal:
+    string name
+
+    define init(string name):
+        this.name = name
+
+    define string get_name():
+        return this.name
+
+    define void speak():
+        print("An animal says: ???")
+
+class Dog extends Animal:
+    define init(string name):
+        Animal.init(this, name)
+
+    define void speak():
+        print(this.get_name() + " says: Woof!")
+        Animal.speak(this)
+
+Dog d = new Dog("Fido")
+d.speak()

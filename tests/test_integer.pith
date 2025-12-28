@@ -1,0 +1,15 @@
+import "integer"
+
+int x = integer.fromString("123")
+print(x)
+print(x + 1)
+
+string s = integer.toString(456)
+print(s)
+print(s + "7")
+
+int y = integer.fromString("-99")
+print(y)
+
+string s2 = integer.toString(-88)
+print(s2)

@@ -1,0 +1,118 @@
+###
+# Pith Standard Library - String Module
+#
+# This module provides a collection of functions for string manipulation.
+# Most of these functions are wrappers around native, high-performance
+# methods built into the string type itself.
+###
+
+###
+# Native Method: len()
+# Returns the number of characters in the string.
+#
+# Usage:
+#   string my_str = "hello"
+#   int length = my_str.len() # length is 5
+###
+
+###
+# Native Method: trim()
+# Returns a new string with leading and trailing whitespace removed.
+#
+# Usage:
+#   string my_str = "  hello world  "
+#   string trimmed = my_str.trim() # trimmed is "hello world"
+###
+
+###
+# Native Method: upper()
+# Returns a new string with all characters converted to uppercase.
+#
+# Usage:
+#   string my_str = "Hello"
+#   string upper_str = my_str.upper() # upper_str is "HELLO"
+###
+
+###
+# Native Method: lower()
+# Returns a new string with all characters converted to lowercase.
+#
+# Usage:
+#   string my_str = "Hello"
+#   string lower_str = my_str.lower() # lower_str is "hello"
+###
+
+###
+# Native Method: split(delimiter)
+# Returns a list of strings by splitting the original string at each
+# occurrence of the delimiter.
+#
+# Parameters:
+#   - delimiter (string): The string to split on.
+#
+# Usage:
+#   string my_str = "a,b,c"
+#   list<string> parts = my_str.split(",") # parts is ["a", "b", "c"]
+###
+
+###
+# Native Method: startswith(prefix)
+# Returns true if the string starts with the given prefix, otherwise false.
+#
+# Parameters:
+#   - prefix (string): The prefix to check for.
+#
+# Usage:
+#   string my_str = "hello world"
+#   bool starts = my_str.startswith("hello") # starts is true
+###
+
+###
+# Native Method: endswith(suffix)
+# Returns true if the string ends with the given suffix, otherwise false.
+#
+# Parameters:
+#   - suffix (string): The suffix to check for.
+#
+# Usage:
+#   string my_str = "hello world"
+#   bool ends = my_str.endswith("world") # ends is true
+###
+
+###
+# Native Method: contains(substring)
+# Returns true if the string contains the given substring, otherwise false.
+#
+# Parameters:
+#   - substring (string): The substring to search for.
+#
+# Usage:
+#   string my_str = "hello world"
+#   bool has = my_str.contains("lo wo") # has is true
+###
+
+###
+# Function: replace(original, old_str, new_str)
+# Returns a new string where all occurrences of the 'old_str' substring are
+# replaced with the 'new_str' substring. This function is implemented in Pith
+# using the native split() and join() methods.
+#
+# Parameters:
+#   - original (string): The string to perform the replacement on.
+#   - old_str (string): The substring to be replaced.
+#   - new_str (string): The substring to replace with.
+#
+# Returns:
+#   A new string with the replacements made.
+#
+# Usage:
+#   import "str"
+#   string new_val = str.replace("one two one", "one", "three")
+#   # new_val is "three two three"
+###
+define string replace(string original, string old_str, string new_str):
+    if old_str == "":
+        return original
+    
+    list<string> parts = original.split(old_str)
+    return parts.join(new_str)

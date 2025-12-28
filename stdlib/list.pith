@@ -1,0 +1,96 @@
+###
+# Pith Standard Library - List Module
+#
+# This module provides documentation for the built-in list methods.
+# Lists are dynamic, ordered collections of values.
+###
+
+###
+# Native Method: len()
+# Returns the number of items in the list.
+#
+# Usage:
+#   list<int> my_list = [1, 2, 3]
+#   int length = my_list.len() # length is 3
+###
+
+###
+# Native Method: append(item)
+# Adds an item to the end of the list. This method modifies the list in-place.
+# This is only valid for dynamic lists, not fixed-size arrays.
+#
+# Parameters:
+#   - item (any): The item to add to the list.
+#
+# Usage:
+#   list<int> my_list = [1, 2]
+#   my_list.append(3) # my_list is now [1, 2, 3]
+###
+
+###
+# Native Method: pop()
+# Removes and returns the last item from the list. This method modifies the list in-place.
+# This is only valid for dynamic lists.
+#
+# Returns:
+#   The item that was removed from the end of the list.
+#
+# Usage:
+#   list<int> my_list = [1, 2, 3]
+#   int last_item = my_list.pop() # last_item is 3, my_list is now [1, 2]
+###
+
+###
+# Native Method: remove(index)
+# Removes and returns the item at the specified index. This method modifies the list in-place.
+# This is only valid for dynamic lists.
+#
+# Parameters:
+#   - index (int): The index of the item to remove.
+#
+# Returns:
+#   The item that was removed.
+#
+# Usage:
+#   list<string> my_list = ["a", "b", "c"]
+#   string item = my_list.remove(1) # item is "b", my_list is now ["a", "c"]
+###
+
+###
+# Native Method: insert(index, value)
+# Inserts a value at a specific index, shifting subsequent elements to the right.
+# This method modifies the list in-place. This is only valid for dynamic lists.
+#
+# Parameters:
+#   - index (int): The index at which to insert the new value.
+#   - value (any): The value to insert.
+#
+# Usage:
+#   list<int> my_list = [10, 30]
+#   my_list.insert(1, 20) # my_list is now [10, 20, 30]
+###
+
+###
+# Native Method: clear()
+# Removes all items from the list, making it empty. This method modifies the list in-place.
+# This is only valid for dynamic lists.
+#
+# Usage:
+#   list<int> my_list = [1, 2, 3]
+#   my_list.clear() # my_list is now []
+###
+
+###
+# Native Method: join(delimiter)
+# Joins all elements of a list of strings into a single string, separated by the delimiter.
+#
+# Parameters:
+#   - delimiter (string): The string to insert between elements.
+#
+# Returns:
+#   A new string containing the joined elements.
+#
+# Usage:
+#   list<string> parts = ["a", "b", "c"]
+#   string joined = parts.join("-") # joined is "a-b-c"
+###

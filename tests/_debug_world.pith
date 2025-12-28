@@ -1,0 +1,3 @@
+import "world"
+print(world.create_world)
+

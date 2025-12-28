@@ -17,7 +17,6 @@ SET TEST_NAMES=^
     test_lists_extended ^
     test_literals ^
     test_math ^
-    test_string_stdlib ^
     test_variables ^
     classtest ^
     test_classes ^
@@ -28,7 +27,13 @@ SET TEST_NAMES=^
     test_foreach_loop ^
     test_for_c_style ^
     test_multiline_comments ^
-    test_io
+    test_io ^
+    isinstance ^
+    inheritance ^
+    super_call ^
+    stdlib_string_list ^
+    test_class_pass ^
+    test_integer
 
 ECHO.
 ECHO ============================

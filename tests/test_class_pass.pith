@@ -1,0 +1,5 @@
+class MyClass:
+    pass
+
+MyClass my = MyClass()
+print("ok")
