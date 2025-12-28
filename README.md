@@ -37,4 +37,4 @@ Contributing & Roadmap
 - The `TODO.md` file lists current priorities, known limitations, and the roadmap for new features and bug fixes. If you plan to change syntax or typing rules, please coordinate so we keep the language's static typing goals consistent.
 
 Contact
-- For questions about design choices (especially syntax or typing behavior) leave an issue or start a discussion — I can update docs and help implement any changes.
+- For questions about design choices (especially syntax or typing behavior) leave an issue or start a discussion 
