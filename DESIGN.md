@@ -129,14 +129,6 @@ Note: native methods are implemented in C and available via field access on stri
 - Objects are allocated via `allocate_obj` which attaches an `ObjHeader` used by the GC.
 - The interpreter uses a temporary root stack (via `gc_push_root` / `gc_pop_root`) to protect temporaries on the C stack during allocations and evaluation.
 
-## 13. Known Limitations & TODOs
-
-- `list<T>` runtime or compile-time enforcement: runtime enforcement has been implemented (lists created with a declared `list<T>` will enforce element types at runtime on `append`/`insert` and on initializer list literals). A separate static checker is still a planned enhancement.
-- Strings are C `char*` buffers; escape sequence handling and Unicode support are limited.
-- The import resolution is simple (tries `stdlib/` first then local file) — package/module system could be improved.
-
-
-
 ---
 
-This specification is intended to track actual implemented behavior. For language-design decisions that would change syntax or typing behavior (for example, introducing stricter compile-time type checking, generics beyond `list<T>`, or changes to comment markers), please review and approve the proposed syntax changes in the TODO section.
+This specification is intended to track actual implemented behavior. For language-design decisions that would change syntax or typing behavior, please review and approve the proposed syntax changes in the TODO section.
