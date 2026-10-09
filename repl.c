@@ -13,6 +13,8 @@
 #include "parser.h"
 #include "tokenizer.h"
 #include "debug.h"
+#include "gc.h"
+#include "resolver.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -230,7 +232,10 @@ void start_repl(int interactive_mode)
         // Error recovery point
         if (setjmp(repl_error_jmp))
         {
-            // Error occurred or interrupt happened
+            // Error occurred or interrupt happened. The longjmp skipped any
+            // pending gc_pop_* calls, so clear the GC root stacks to drop stale
+            // (and now dangling) frame roots before continuing.
+            gc_reset_roots();
             if (current_code_buffer)
             {
                 free(current_code_buffer);
@@ -314,6 +319,7 @@ void start_repl(int interactive_mode)
         // Parse
         ParserState p_state = {&t_state, 0};
         ASTNode *root = parse_program(&p_state);
+        resolve_program(root); // Resolve function-local variables before executing.
         current_ast_root = root;
 
         // Execute

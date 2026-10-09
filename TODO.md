@@ -17,6 +17,38 @@ This document tracks the major features, bug fixes, and improvements for the Pit
 ### 1.1. Bug fixes that were just completed
 - [x] Parser mis-parsing `pass` inside class bodies (fixed) — prevented creation of NULL field names.
 
+### 1.2. Known correctness bugs
+- [x] **Recursion collected active call frames.** Deep recursion (e.g. `fib(20)`
+  and above) failed with a spurious `Undefined variable` error. Root cause: a
+  call frame's `Env` chain lived only in a C local, so once recursion crossed the
+  GC threshold the collector swept the live frame's bindings. Fixed by registering
+  active environments as GC roots: `gc_push_env_root`/`gc_pop_env_root` (see
+  `gc.c`), called in `exec_block` and at every call site in `interpreter.c`, and
+  `gc_reset_roots` on the REPL's longjmp error-recovery path. Covered by
+  `benchmarks/bench_fib.pith`.
+  - Note: a narrower rooting gap remains — heap values already evaluated into the
+    `args[]` array are not rooted while the remaining arguments are evaluated.
+    Not yet observed to crash; close it when the call path is reworked into a
+    single pre-sized frame (see Performance).
+
+## 1.5. Performance
+
+Completed and planned performance work is documented in detail in `PERFORMANCE.md`.
+Benchmarks live in `benchmarks/`.
+
+- [x] Build with `-O2` by default (CMake defaulted to `-O0`; ~2x on `bench_loop`)
+- [x] Parse int/float/bool literals once at parse time, cache on the AST node
+      (previously `atoi`/`atof`/`strcmp` ran on every evaluation)
+- [x] Resolve operators to an `OpCode` enum at parse time; dispatch binary/unary
+      ops with a `switch` instead of a `strcmp` chain
+- [ ] Resolve variables to `(depth, slot)` indices; replace the per-binding
+      linked-list `Env` with slot-based scopes (removes O(n) `strcmp` lookups,
+      also fixes the recursion bug above)
+- [ ] Immutable / interned strings so `value_copy` stops deep-copying on every read
+- [ ] Store instance fields in flat slots instead of a string-keyed hashmap
+- [ ] Use a single pre-sized call frame instead of one GC object per argument
+- [ ] Resize/rehash hashmaps past a load factor (currently fixed at 16 buckets)
+
 ## 2. Medium Priority (Important improvements)
 
 - [x] Runtime enforcement for `list<T>` element types (implemented)

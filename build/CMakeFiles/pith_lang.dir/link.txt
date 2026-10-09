@@ -1,0 +1,1 @@
+/usr/bin/cc -O2 -DNDEBUG CMakeFiles/pith_lang.dir/main.c.o CMakeFiles/pith_lang.dir/tokenizer.c.o CMakeFiles/pith_lang.dir/parser.c.o CMakeFiles/pith_lang.dir/interpreter.c.o CMakeFiles/pith_lang.dir/repl.c.o CMakeFiles/pith_lang.dir/gc.c.o CMakeFiles/pith_lang.dir/resolver.c.o -o pith_lang  -lm 

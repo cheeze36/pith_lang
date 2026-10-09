@@ -30,6 +30,9 @@ Standard library and modules
 Debugging
 - For development, `debug.h` contains compile-time flags for detailed tracing: tokenizer, parser, interpreter, environment, GC events, native calls, and more. Toggle the flags in `debug.h` and recompile to get detailed logs.
 
+Performance
+- `PERFORMANCE.md` documents completed interpreter optimizations, how to benchmark, and the roadmap of remaining work. Benchmark programs live in `benchmarks/`.
+
 Design and further details
 - For a deeper, implementation-accurate specification see `DESIGN.md`.
 

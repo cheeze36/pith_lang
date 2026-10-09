@@ -13,6 +13,7 @@
 #include "debug.h"
 #include "common.h"
 #include "gc.h" // Include GC
+#include "resolver.h" // Static variable-resolution pass
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -217,6 +218,9 @@ void env_define(Env **env_ptr, const char *name, Value val)
     new_entry->name = strdup(name);
     new_entry->val = value_copy(val);
     new_entry->next = *env_ptr;
+    new_entry->slots = NULL; // Name-binding node, not a function frame.
+    new_entry->slot_count = 0;
+    new_entry->enclosing = NULL;
     *env_ptr = new_entry;
 }
 
@@ -244,7 +248,7 @@ void env_assign(Env *env, const char *name, Value val, int line)
 
     while (env)
     {
-        if (strcmp(env->name, name) == 0)
+        if (env->name && strcmp(env->name, name) == 0) // Skip frame nodes (name == NULL).
         {
             env->val = value_copy(val);
             return;
@@ -254,7 +258,7 @@ void env_assign(Env *env, const char *name, Value val, int line)
     Env *g = global_env;
     while (g)
     {
-        if (strcmp(g->name, name) == 0)
+        if (g->name && strcmp(g->name, name) == 0)
         {
             g->val = value_copy(val);
             return;
@@ -288,19 +292,85 @@ Value env_get(Env *env, const char *name, int line)
 
     while (env)
     {
-        if (strcmp(env->name, name) == 0)
+        if (env->name && strcmp(env->name, name) == 0) // Skip frame nodes (name == NULL).
             return env->val;
         env = env->next;
     }
     Env *g = global_env;
     while (g)
     {
-        if (strcmp(g->name, name) == 0)
+        if (g->name && strcmp(g->name, name) == 0)
             return g->val;
         g = g->next;
     }
     report_error(line, "Undefined variable '%s'.", name);
     return (Value){VAL_VOID};
+}
+
+/**
+ * @brief Returns a function-local variable by its resolved (depth, slot).
+ *
+ * @param env The current (innermost) function frame.
+ * @param depth Number of enclosing frames to hop (0 = current).
+ * @param slot Slot index within the target frame.
+ */
+static Value frame_get_local(Env *env, int depth, int slot)
+{
+    while (depth-- > 0)
+        env = env->enclosing;
+    return env->slots[slot];
+}
+
+/**
+ * @brief Stores into a function-local slot (copying as env_define/assign do).
+ */
+static void frame_set_local(Env *env, int depth, int slot, Value val)
+{
+    while (depth-- > 0)
+        env = env->enclosing;
+    env->slots[slot] = value_copy(val);
+}
+
+/**
+ * @brief Allocates a function activation frame.
+ *
+ * @param slot_count Number of local slots (from the resolver).
+ * @param captured The function's captured environment (closure). Used for
+ *        name-based fallback via `next`, and as the enclosing frame for closures.
+ * @return The new frame (a GC-managed Env node with name == NULL).
+ */
+static Env *make_frame(int slot_count, Env *captured)
+{
+    Env *frame = (Env *) allocate_obj(sizeof(Env), OBJ_ENV);
+    frame->name = NULL;
+    frame->val = (Value){VAL_VOID};
+    frame->next = captured; // Name-based fallback reaches globals/module scope.
+    frame->slot_count = slot_count;
+    frame->slots = NULL;
+    // A captured environment that is itself a frame is the enclosing frame for
+    // closures (depth > 0 lookups); otherwise there is no enclosing frame.
+    frame->enclosing = (captured && captured->slots != NULL) ? captured : NULL;
+    if (slot_count > 0)
+    {
+        frame->slots = calloc(slot_count, sizeof(Value));
+        for (int i = 0; i < slot_count; i++)
+            frame->slots[i] = (Value){VAL_VOID};
+    }
+    return frame;
+}
+
+/**
+ * @brief Binds the value of a declaration to its resolved location.
+ *
+ * Function-locals go to a frame slot; everything else is defined by name in the
+ * current (global/module/top-level) environment.
+ */
+static void bind_var(ASTNode *node, Env **env_ptr, Value val)
+{
+    if (node->is_local)
+        frame_set_local(*env_ptr, node->var_depth, node->var_slot, val);
+    else
+        env_define(env_ptr, node->value, val);
 }
 
 const char *get_value_type_name(ValueType type)
@@ -1232,11 +1302,17 @@ Value exec_block(ASTNode *node, Env **env_ptr)
     Env *original_env = *env_ptr;
     Env *block_env = original_env;
 
+    // Protect this scope's bindings from GC for the lifetime of the block.
+    // Locals declared below are prepended to block_env; registering its address
+    // keeps the whole chain reachable even if a collection happens mid-block.
+    gc_push_env_root(&block_env);
+
     for (int i = 0; i < node->children_count; i++)
     {
         Value result = exec(node->children[i], &block_env);
         if (result.type != VAL_VOID)
         {
+            gc_pop_env_root();
             *env_ptr = original_env;
 #ifdef DEBUG_TRACE_EXECUTION
             printf("[EXEC] Exiting block scope (with return).\n");
@@ -1248,6 +1324,7 @@ Value exec_block(ASTNode *node, Env **env_ptr)
         }
     }
 
+    gc_pop_env_root();
     *env_ptr = original_env;
 #ifdef DEBUG_TRACE_EXECUTION
     printf("[EXEC] Exiting block scope.\n");
@@ -1366,14 +1443,16 @@ Value eval(ASTNode *node, Env *env)
     {
         case AST_INT_LITERAL:
         {
+            // Value parsed once at parse time (see create_node), not re-parsed here.
             result.type = VAL_INT;
-            result.int_val = atoi(node->value);
+            result.int_val = (int) node->int_value;
             break;
         }
         case AST_FLOAT_LITERAL:
         {
+            // Value parsed once at parse time (see create_node), not re-parsed here.
             result.type = VAL_FLOAT;
-            result.float_val = atof(node->value);
+            result.float_val = (float) node->float_value;
             break;
         }
         case AST_STRING_LITERAL:
@@ -1384,8 +1463,9 @@ Value eval(ASTNode *node, Env *env)
         }
         case AST_BOOL_LITERAL:
         {
+            // Value parsed once at parse time (see create_node), not re-parsed here.
             result.type = VAL_BOOL;
-            result.int_val = (strcmp(node->value, "true") == 0);
+            result.int_val = (int) node->int_value;
             break;
         }
         case AST_LIST_LITERAL:
@@ -1432,7 +1512,10 @@ Value eval(ASTNode *node, Env *env)
             break;
         }
         case AST_VAR_REF:
-            result = value_copy(env_get(env, node->value, node->line_num));
+            if (node->is_local) // Resolved to a frame slot: index directly.
+                result = value_copy(frame_get_local(env, node->var_depth, node->var_slot));
+            else // Global / unresolved: name-based lookup.
+                result = value_copy(env_get(env, node->value, node->line_num));
             break;
         case AST_UNARY_OP:
         {
@@ -1440,7 +1523,8 @@ Value eval(ASTNode *node, Env *env)
             printf("[DDI_UNARY_OP] Unary op '%s'\n", node->value);
 #endif
             Value operand = eval(node->children[0], env);
-            if (strcmp(node->value, "-") == 0)
+            // Operator resolved to an OpCode at parse time (see create_node).
+            if (node->op == OP_SUB)
             {
                 if (operand.type == VAL_INT)
                 {
@@ -1457,7 +1541,7 @@ Value eval(ASTNode *node, Env *env)
                     report_error(node->line_num, "Operand for unary '-' must be a number.");
                 }
             }
-            else if (strcmp(node->value, "!") == 0)
+            else if (node->op == OP_NOT)
             {
                 if (operand.type == VAL_BOOL)
                 {
@@ -1509,27 +1593,15 @@ Value eval(ASTNode *node, Env *env)
                     args[i] = eval(call_node->children[i + 1], env);
                 }
 
-                Env *arg_env = NULL;
-                env_define(&arg_env, "this", instance_val);
+                // Build the method's activation frame: slot 0 = `this`, then params.
+                Env *exec_env = make_frame(init_method->body->frame_slots, init_method->env);
+                gc_push_env_root(&exec_env);
+                exec_env->slots[0] = value_copy(instance_val);
                 for (int i = 0; i < arg_count; i++)
-                {
-                    env_define(&arg_env, init_method->body->args[i], args[i]);
-                }
-
-                Env *exec_env = arg_env;
-                if (exec_env)
-                {
-                    Env *tail = exec_env;
-                    while (tail->next != NULL)
-                        tail = tail->next;
-                    tail->next = init_method->env;
-                }
-                else
-                {
-                    exec_env = init_method->env;
-                }
+                    exec_env->slots[i + 1] = value_copy(args[i]);
 
                 exec_block(init_method->body->children[0], &exec_env);
+                gc_pop_env_root();
                 free(args);
             }
 
@@ -1646,67 +1718,25 @@ Value eval(ASTNode *node, Env *env)
 
             Value res = {VAL_VOID};
 
+            // Operator resolved to an OpCode at parse time (see create_node), so we
+            // switch() on it instead of running a chain of strcmp() per evaluation.
             if (left.type == VAL_INT && right.type == VAL_INT)
             {
-                if (strcmp(node->value, "+") == 0)
+                switch (node->op)
                 {
-                    res.type = VAL_INT;
-                    res.int_val = left.int_val + right.int_val;
-                }
-                else if (strcmp(node->value, "-") == 0)
-                {
-                    res.type = VAL_INT;
-                    res.int_val = left.int_val - right.int_val;
-                }
-                else if (strcmp(node->value, "*") == 0)
-                {
-                    res.type = VAL_INT;
-                    res.int_val = left.int_val * right.int_val;
-                }
-                else if (strcmp(node->value, "/") == 0)
-                {
-                    res.type = VAL_INT;
-                    res.int_val = left.int_val / right.int_val;
-                }
-                else if (strcmp(node->value, "%") == 0)
-                {
-                    res.type = VAL_INT;
-                    res.int_val = left.int_val % right.int_val;
-                }
-                else if (strcmp(node->value, "^") == 0)
-                {
-                    res.type = VAL_INT;
-                    res.int_val = (int) pow(left.int_val, right.int_val);
-                }
-                else if (strcmp(node->value, "<") == 0)
-                {
-                    res.type = VAL_BOOL;
-                    res.int_val = left.int_val < right.int_val;
-                }
-                else if (strcmp(node->value, ">") == 0)
-                {
-                    res.type = VAL_BOOL;
-                    res.int_val = left.int_val > right.int_val;
-                }
-                else if (strcmp(node->value, "<=") == 0)
-                {
-                    res.type = VAL_BOOL;
-                    res.int_val = left.int_val <= right.int_val;
-                }
-                else if (strcmp(node->value, ">=") == 0)
-                {
-                    res.type = VAL_BOOL;
-                    res.int_val = left.int_val >= right.int_val;
-                }
-                else if (strcmp(node->value, "==") == 0)
-                {
-                    res.type = VAL_BOOL;
-                    res.int_val = left.int_val == right.int_val;
-                }
-                else if (strcmp(node->value, "!=") == 0)
-                {
-                    res.type = VAL_BOOL;
-                    res.int_val = left.int_val != right.int_val;
+                    case OP_ADD: res.type = VAL_INT; res.int_val = left.int_val + right.int_val; break;
+                    case OP_SUB: res.type = VAL_INT; res.int_val = left.int_val - right.int_val; break;
+                    case OP_MUL: res.type = VAL_INT; res.int_val = left.int_val * right.int_val; break;
+                    case OP_DIV: res.type = VAL_INT; res.int_val = left.int_val / right.int_val; break;
+                    case OP_MOD: res.type = VAL_INT; res.int_val = left.int_val % right.int_val; break;
+                    case OP_POW: res.type = VAL_INT; res.int_val = (int) pow(left.int_val, right.int_val); break;
+                    case OP_LT: res.type = VAL_BOOL; res.int_val = left.int_val < right.int_val; break;
+                    case OP_GT: res.type = VAL_BOOL; res.int_val = left.int_val > right.int_val; break;
+                    case OP_LE: res.type = VAL_BOOL; res.int_val = left.int_val <= right.int_val; break;
+                    case OP_GE: res.type = VAL_BOOL; res.int_val = left.int_val >= right.int_val; break;
+                    case OP_EQ: res.type = VAL_BOOL; res.int_val = left.int_val == right.int_val; break;
+                    case OP_NE: res.type = VAL_BOOL; res.int_val = left.int_val != right.int_val; break;
+                    default: break;
                 }
             }
             else if ((left.type == VAL_FLOAT || left.type == VAL_INT) && (
@@ -1714,94 +1744,47 @@ Value eval(ASTNode *node, Env *env)
             {
                 double left_d = (left.type == VAL_INT) ? left.int_val : left.float_val;
                 double right_d = (right.type == VAL_INT) ? right.int_val : right.float_val;
-                if (strcmp(node->value, "+") == 0)
+                switch (node->op)
                 {
-                    res.type = VAL_FLOAT;
-                    res.float_val = left_d + right_d;
-                }
-                else if (strcmp(node->value, "-") == 0)
-                {
-                    res.type = VAL_FLOAT;
-                    res.float_val = left_d - right_d;
-                }
-                else if (strcmp(node->value, "*") == 0)
-                {
-                    res.type = VAL_FLOAT;
-                    res.float_val = left_d * right_d;
-                }
-                else if (strcmp(node->value, "/") == 0)
-                {
-                    res.type = VAL_FLOAT;
-                    res.float_val = left_d / right_d;
-                }
-                else if (strcmp(node->value, "^") == 0)
-                {
-                    res.type = VAL_FLOAT;
-                    res.float_val = pow(left_d, right_d);
-                }
-                else if (strcmp(node->value, "<") == 0)
-                {
-                    res.type = VAL_BOOL;
-                    res.int_val = left_d < right_d;
-                }
-                else if (strcmp(node->value, ">") == 0)
-                {
-                    res.type = VAL_BOOL;
-                    res.int_val = left_d > right_d;
-                }
-                else if (strcmp(node->value, "<=") == 0)
-                {
-                    res.type = VAL_BOOL;
-                    res.int_val = left_d <= right_d;
-                }
-                else if (strcmp(node->value, ">=") == 0)
-                {
-                    res.type = VAL_BOOL;
-                    res.int_val = left_d >= right_d;
-                }
-                else if (strcmp(node->value, "==") == 0)
-                {
-                    res.type = VAL_BOOL;
-                    res.int_val = left_d == right_d;
-                }
-                else if (strcmp(node->value, "!=") == 0)
-                {
-                    res.type = VAL_BOOL;
-                    res.int_val = left_d != right_d;
+                    case OP_ADD: res.type = VAL_FLOAT; res.float_val = left_d + right_d; break;
+                    case OP_SUB: res.type = VAL_FLOAT; res.float_val = left_d - right_d; break;
+                    case OP_MUL: res.type = VAL_FLOAT; res.float_val = left_d * right_d; break;
+                    case OP_DIV: res.type = VAL_FLOAT; res.float_val = left_d / right_d; break;
+                    case OP_POW: res.type = VAL_FLOAT; res.float_val = pow(left_d, right_d); break;
+                    case OP_LT: res.type = VAL_BOOL; res.int_val = left_d < right_d; break;
+                    case OP_GT: res.type = VAL_BOOL; res.int_val = left_d > right_d; break;
+                    case OP_LE: res.type = VAL_BOOL; res.int_val = left_d <= right_d; break;
+                    case OP_GE: res.type = VAL_BOOL; res.int_val = left_d >= right_d; break;
+                    case OP_EQ: res.type = VAL_BOOL; res.int_val = left_d == right_d; break;
+                    case OP_NE: res.type = VAL_BOOL; res.int_val = left_d != right_d; break;
+                    default: break;
                 }
             }
             else if (left.type == VAL_STRING && right.type == VAL_STRING)
             {
-                if (strcmp(node->value, "+") == 0)
+                switch (node->op)
                 {
-                    char *new_str = malloc(strlen(left.str_val) + strlen(right.str_val) + 1);
-                    strcpy(new_str, left.str_val);
-                    strcat(new_str, right.str_val);
-                    res.type = VAL_STRING;
-                    res.str_val = new_str;
-                }
-                else if (strcmp(node->value, "==") == 0)
-                {
-                    res.type = VAL_BOOL;
-                    res.int_val = strcmp(left.str_val, right.str_val) == 0;
-                }
-                else if (strcmp(node->value, "!=") == 0)
-                {
-                    res.type = VAL_BOOL;
-                    res.int_val = strcmp(left.str_val, right.str_val) != 0;
+                    case OP_ADD:
+                    {
+                        char *new_str = malloc(strlen(left.str_val) + strlen(right.str_val) + 1);
+                        strcpy(new_str, left.str_val);
+                        strcat(new_str, right.str_val);
+                        res.type = VAL_STRING;
+                        res.str_val = new_str;
+                        break;
+                    }
+                    case OP_EQ: res.type = VAL_BOOL; res.int_val = strcmp(left.str_val, right.str_val) == 0; break;
+                    case OP_NE: res.type = VAL_BOOL; res.int_val = strcmp(left.str_val, right.str_val) != 0; break;
+                    default: break;
                 }
             }
             else if (left.type == VAL_BOOL && right.type == VAL_BOOL)
             {
-                if (strcmp(node->value, "and") == 0)
+                switch (node->op)
                 {
-                    res.type = VAL_BOOL;
-                    res.int_val = left.int_val && right.int_val;
-                }
-                else if (strcmp(node->value, "or") == 0)
-                {
-                    res.type = VAL_BOOL;
-                    res.int_val = left.int_val || right.int_val;
+                    case OP_AND: res.type = VAL_BOOL; res.int_val = left.int_val && right.int_val; break;
+                    case OP_OR: res.type = VAL_BOOL; res.int_val = left.int_val || right.int_val; break;
+                    default: break;
                 }
             }
 
@@ -1840,24 +1823,15 @@ Value eval(ASTNode *node, Env *env)
                     for (int i = 0; i < arg_count; i++)
                         args[i] = eval(node->children[i + 1], env);
 
-                    Env *arg_env = NULL;
-                    env_define(&arg_env, "this", instance_val);
+                    // Build the method's activation frame: slot 0 = `this`, then params.
+                    Env *exec_env = make_frame(init_method->body->frame_slots, init_method->env);
+                    gc_push_env_root(&exec_env);
+                    exec_env->slots[0] = value_copy(instance_val);
                     for (int i = 0; i < arg_count; i++)
-                        env_define(&arg_env, init_method->body->args[i], args[i]);
+                        exec_env->slots[i + 1] = value_copy(args[i]);
 
-                    Env *exec_env = arg_env;
-                    if (exec_env)
-                    {
-                        Env *tail = exec_env;
-                        while (tail->next != NULL)
-                            tail = tail->next;
-                        tail->next = init_method->env;
-                    }
-                    else
-                    {
-                        exec_env = init_method->env;
-                    }
                     exec_block(init_method->body->children[0], &exec_env);
+                    gc_pop_env_root();
                     free(args);
                 }
 
@@ -1885,26 +1859,14 @@ Value eval(ASTNode *node, Env *env)
                 Value this_val = args[0];
                 // TODO: Add type checking to ensure this_val is an instance of func->owner_class or a subclass
 
-                Env *arg_env = NULL;
-                env_define(&arg_env, "this", this_val);
+                // Unbound method: slot 0 = `this` (args[0]), then the remaining args.
+                Env *exec_env = make_frame(func->body->frame_slots, func->env);
+                gc_push_env_root(&exec_env);
+                exec_env->slots[0] = value_copy(this_val);
                 for (int i = 1; i < arg_count; i++)
-                {
-                    env_define(&arg_env, func->body->args[i - 1], args[i]);
-                }
-
-                Env *exec_env = arg_env;
-                if (exec_env)
-                {
-                    Env *tail = exec_env;
-                    while (tail->next != NULL)
-                        tail = tail->next;
-                    tail->next = func->env;
-                }
-                else
-                {
-                    exec_env = func->env;
-                }
+                    exec_env->slots[i] = value_copy(args[i]);
                 result = exec_block(func->body->children[0], &exec_env);
+                gc_pop_env_root();
                 free(args);
             }
             else
@@ -1933,49 +1895,27 @@ Value eval(ASTNode *node, Env *env)
                     else
                     {
                         Func *method = callee.bound_method->method.func;
-                        Env *arg_env = NULL;
-                        env_define(&arg_env, "this", callee.bound_method->receiver);
+                        // Bound method: slot 0 = receiver, then params.
+                        Env *exec_env = make_frame(method->body->frame_slots, method->env);
+                        gc_push_env_root(&exec_env);
+                        exec_env->slots[0] = value_copy(callee.bound_method->receiver);
                         for (int i = 0; i < (arg_count - arg_offset); i++)
-                        {
-                            env_define(&arg_env, method->body->args[i], args[i + arg_offset]);
-                        }
-                        Env *exec_env = arg_env;
-                        if (exec_env)
-                        {
-                            Env *tail = exec_env;
-                            while (tail->next != NULL)
-                                tail = tail->next;
-                            tail->next = method->env;
-                        }
-                        else
-                        {
-                            exec_env = method->env;
-                        }
+                            exec_env->slots[i + 1] = value_copy(args[i + arg_offset]);
                         result = exec_block(method->body->children[0], &exec_env);
+                        gc_pop_env_root();
                     }
                     free(args);
                 }
                 else if (callee.type == VAL_FUNC)
                 {
                     Func *func = callee.func;
-                    Env *arg_env = NULL;
+                    // Plain function: params fill slots 0..n-1.
+                    Env *exec_env = make_frame(func->body->frame_slots, func->env);
+                    gc_push_env_root(&exec_env);
                     for (int i = 0; i < arg_count; i++)
-                    {
-                        env_define(&arg_env, func->body->args[i], args[i]);
-                    }
-                    Env *exec_env = arg_env;
-                    if (exec_env)
-                    {
-                        Env *tail = exec_env;
-                        while (tail->next != NULL)
-                            tail = tail->next;
-                        tail->next = func->env;
-                    }
-                    else
-                    {
-                        exec_env = func->env;
-                    }
+                        exec_env->slots[i] = value_copy(args[i]);
                     result = exec_block(func->body->children[0], &exec_env);
+                    gc_pop_env_root();
                     free(args);
                 }
                 else if (callee.type == VAL_NATIVE_FN)
@@ -2169,7 +2109,7 @@ Value exec(ASTNode *node, Env **env_ptr)
                         sscanf(node->type_name, "list<%31[^>]>", inner);
                         list->element_type = get_type_from_name(inner);
                     }
-                    env_define(env_ptr, node->value, (Value){.type = VAL_LIST, .list = list});
+                    bind_var(node, env_ptr, (Value){.type = VAL_LIST, .list = list});
                 }
                 else
                 {
@@ -2192,7 +2132,7 @@ Value exec(ASTNode *node, Env **env_ptr)
                     Value list_val;
                     list_val.type = VAL_LIST;
                     list_val.list = list;
-                    env_define(env_ptr, node->value, list_val);
+                    bind_var(node, env_ptr, list_val);
                 }
             }
             else if (strncmp(node->type_name, "map<", 4) == 0)
@@ -2222,7 +2162,7 @@ Value exec(ASTNode *node, Env **env_ptr)
 
                     gc_pop_root();
                 }
-                env_define(env_ptr, node->value, map_val);
+                bind_var(node, env_ptr, map_val);
             }
             else
             {
@@ -2258,7 +2198,7 @@ Value exec(ASTNode *node, Env **env_ptr)
                                      node->type_name, get_value_type_name(val.type));
                     }
                 }
-                env_define(env_ptr, node->value, val);
+                bind_var(node, env_ptr, val);
             }
             break;
         }
@@ -2268,7 +2208,10 @@ Value exec(ASTNode *node, Env **env_ptr)
             Value val_to_assign = eval(node->children[1], *env_ptr);
             if (target->type == AST_VAR_REF)
             {
-                env_assign(*env_ptr, target->value, val_to_assign, target->line_num);
+                if (target->is_local) // Resolved to a frame slot.
+                    frame_set_local(*env_ptr, target->var_depth, target->var_slot, val_to_assign);
+                else
+                    env_assign(*env_ptr, target->value, val_to_assign, target->line_num);
             }
             else if (target->type == AST_FIELD_ACCESS)
             {
@@ -2362,7 +2305,10 @@ Value exec(ASTNode *node, Env **env_ptr)
             for (int i = 0; i < list->count; i++)
             {
                 Env *loop_env = *env_ptr;
-                env_define(&loop_env, node->value, list->items[i]);
+                if (node->is_local) // Loop variable is a frame slot.
+                    frame_set_local(*env_ptr, node->var_depth, node->var_slot, list->items[i]);
+                else
+                    env_define(&loop_env, node->value, list->items[i]);
 
 #ifdef DEBUG_TRACE_EXECUTION
                 printf("[EXEC] foreach loop iteration %d: defining '%s'\n", i, node->value);
@@ -2551,6 +2497,7 @@ Value exec(ASTNode *node, Env **env_ptr)
                 tokenize(source, &t_state);
                 ParserState p_state = {&t_state, 0};
                 ASTNode *module_ast = parse_program(&p_state);
+                resolve_program(module_ast); // Resolve the module's function locals too.
                 exec_module(module_ast, &module_env);
                 free(source);
             }
@@ -2598,6 +2545,9 @@ void interpret(ASTNode *root)
     define_all_natives_in_env(&global_env);
     register_all_native_methods();
     register_all_native_modules();
+
+    // Assign (depth, slot) locations to all function-local variables before running.
+    resolve_program(root);
 
     for (int i = 0; i < root->children_count; i++)
     {

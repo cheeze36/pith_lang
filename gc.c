@@ -21,6 +21,15 @@ ObjHeader *objects = NULL;
 ObjHeader *temp_roots[MAX_TEMP_ROOTS];
 int temp_root_count = 0;
 
+// --- Active Environment Root Stack ---
+// Holds the addresses of the C local variables that point at the environment
+// currently being executed (one per active call frame / block scope). The sizing
+// mirrors C recursion depth, since each nested interpreter call registers one
+// slot; the tree-walker would overflow the C stack before this fills.
+#define MAX_ENV_ROOTS 100000
+Env **env_roots[MAX_ENV_ROOTS];
+int env_root_count = 0;
+
 // --- Allocation Tracking ---
 size_t bytes_allocated = 0;
 size_t next_gc_threshold = 1024 * 1024; // Start at 1MB
@@ -62,6 +71,39 @@ void gc_pop_root()
         fprintf(stderr, "Fatal: GC temp root stack underflow.\n");
         exit(1);
     }
+}
+
+void gc_push_env_root(Env **slot)
+{
+    if (env_root_count >= MAX_ENV_ROOTS)
+    {
+        fprintf(stderr, "Fatal: GC environment root stack overflow (recursion too deep).\n");
+        exit(1);
+    }
+    env_roots[env_root_count++] = slot;
+}
+
+void gc_pop_env_root()
+{
+    if (env_root_count > 0)
+    {
+        env_root_count--;
+    }
+    else
+    {
+        fprintf(stderr, "Fatal: GC environment root stack underflow.\n");
+        exit(1);
+    }
+}
+
+void gc_reset_roots(void)
+{
+    // The REPL recovers from errors with longjmp, which unwinds the C stack
+    // without running the matching gc_pop_* calls. Those stacks would then hold
+    // stale slots (env_roots even point at dead stack frames). Reset both to a
+    // clean state at the REPL's recovery point before the next command runs.
+    temp_root_count = 0;
+    env_root_count = 0;
 }
 
 /**
@@ -213,6 +255,10 @@ void mark_object(ObjHeader *obj)
             Env *env = (Env *) obj;
             mark_value(env->val);
             mark_object((ObjHeader *) env->next);
+            // Function-frame nodes also own local slots and an enclosing frame.
+            for (int i = 0; i < env->slot_count; i++)
+                mark_value(env->slots[i]);
+            mark_object((ObjHeader *) env->enclosing);
             break;
         }
         case OBJ_STRUCT_DEF:
@@ -250,6 +296,14 @@ void mark_roots()
     for (int i = 0; i < temp_root_count; i++)
     {
         mark_object(temp_roots[i]);
+    }
+
+    // Mark the environment chain of every active call frame / block scope.
+    // Each slot points at a live C local, so we read the current head via *slot;
+    // marking an Env recursively marks its parent chain (see mark_object OBJ_ENV).
+    for (int i = 0; i < env_root_count; i++)
+    {
+        mark_object((ObjHeader *) *env_roots[i]);
     }
 }
 
@@ -357,8 +411,14 @@ void sweep()
                 case OBJ_ENV:
                 {
                     Env *env = (Env *) unreached;
-                    free(env->name);
+                    free(env->name); // NULL for frame nodes; free(NULL) is safe.
                     free_value_content(env->val);
+                    if (env->slots)
+                    {
+                        for (int i = 0; i < env->slot_count; i++)
+                            free_value_content(env->slots[i]);
+                        free(env->slots);
+                    }
                     bytes_allocated -= sizeof(Env);
                     break;
                 }

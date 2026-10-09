@@ -36,6 +36,37 @@ ASTNode *parse_function_definition(ParserState *state);
  * @param line_num The line number in the source code where this node originated.
  * @return A pointer to the newly created ASTNode.
  */
+/**
+ * @brief Resolves an operator string to its OpCode.
+ *
+ * Called once per operator node at parse time so the interpreter never has to
+ * compare operator strings during evaluation.
+ *
+ * @param op The operator text (e.g. "+", "<=", "and"), may be NULL.
+ * @return The matching OpCode, or OP_NONE if the string is not a known operator.
+ */
+static OpCode resolve_op(const char *op)
+{
+    if (!op)
+        return OP_NONE;
+    if (strcmp(op, "+") == 0) return OP_ADD;
+    if (strcmp(op, "-") == 0) return OP_SUB;
+    if (strcmp(op, "*") == 0) return OP_MUL;
+    if (strcmp(op, "/") == 0) return OP_DIV;
+    if (strcmp(op, "%") == 0) return OP_MOD;
+    if (strcmp(op, "^") == 0) return OP_POW;
+    if (strcmp(op, "<") == 0) return OP_LT;
+    if (strcmp(op, ">") == 0) return OP_GT;
+    if (strcmp(op, "<=") == 0) return OP_LE;
+    if (strcmp(op, ">=") == 0) return OP_GE;
+    if (strcmp(op, "==") == 0) return OP_EQ;
+    if (strcmp(op, "!=") == 0) return OP_NE;
+    if (strcmp(op, "and") == 0) return OP_AND;
+    if (strcmp(op, "or") == 0) return OP_OR;
+    if (strcmp(op, "!") == 0) return OP_NOT;
+    return OP_NONE;
+}
+
 ASTNode *create_node(ASTNodeType type, const char *value, int line_num)
 {
     ASTNode *node = malloc(sizeof(ASTNode));
@@ -53,6 +84,34 @@ ASTNode *create_node(ASTNodeType type, const char *value, int line_num)
     node->args = NULL;
     node->arg_count = 0;
     node->line_num = line_num;
+
+    // Precompute operator / literal caches so the interpreter can skip string
+    // parsing and strcmp() dispatch on every evaluation (see ASTNode in parser.h).
+    node->op = OP_NONE;
+    node->int_value = 0;
+    node->float_value = 0.0;
+    node->is_local = 0;
+    node->var_depth = 0;
+    node->var_slot = 0;
+    node->frame_slots = 0;
+    switch (type)
+    {
+        case AST_BINARY_OP:
+        case AST_UNARY_OP:
+            node->op = resolve_op(value);
+            break;
+        case AST_INT_LITERAL:
+            node->int_value = value ? strtol(value, NULL, 10) : 0;
+            break;
+        case AST_FLOAT_LITERAL:
+            node->float_value = value ? strtod(value, NULL) : 0.0;
+            break;
+        case AST_BOOL_LITERAL:
+            node->int_value = (value && strcmp(value, "true") == 0) ? 1 : 0;
+            break;
+        default:
+            break;
+    }
 
     // DO NOT DISCARD DEBUG CODE
 #ifdef DEBUG_DEEP_DIVE_PARSER

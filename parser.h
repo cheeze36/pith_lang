@@ -53,6 +53,36 @@ typedef enum
 } ASTNodeType;
 
 /**
+ * @brief Operator codes for binary and unary operations.
+ *
+ * Resolved once from the operator string at parse time (see create_node) so the
+ * interpreter can dispatch with a switch() instead of a chain of strcmp() calls
+ * on every evaluation. OP_NONE marks a node that carries no operator.
+ */
+typedef enum
+{
+    OP_NONE = 0,
+    // Arithmetic
+    OP_ADD, // +
+    OP_SUB, // -  (also unary negation)
+    OP_MUL, // *
+    OP_DIV, // /
+    OP_MOD, // %
+    OP_POW, // ^
+    // Comparison
+    OP_LT, // <
+    OP_GT, // >
+    OP_LE, // <=
+    OP_GE, // >=
+    OP_EQ, // ==
+    OP_NE, // !=
+    // Logical
+    OP_AND, // and
+    OP_OR, // or
+    OP_NOT // !  (unary)
+} OpCode;
+
+/**
  * @brief Structure representing a node in the Abstract Syntax Tree.
  */
 typedef struct ASTNode
@@ -66,6 +96,21 @@ typedef struct ASTNode
     char **args; // Array of argument names (for functions)
     int arg_count; // Number of arguments
     int line_num; // Source line number
+
+    // --- Precomputed caches (populated by create_node, read by the interpreter) ---
+    // These let the interpreter avoid re-parsing literals and re-matching operator
+    // strings on every single evaluation of a node.
+    OpCode op; // Resolved operator for AST_BINARY_OP / AST_UNARY_OP; OP_NONE otherwise.
+    long int_value; // Parsed value for AST_INT_LITERAL and AST_BOOL_LITERAL (0/1).
+    double float_value; // Parsed value for AST_FLOAT_LITERAL.
+
+    // --- Variable resolution (populated by the resolver pass, see resolver.c) ---
+    // For AST_VAR_REF, AST_VAR_DECL, and AST_FOREACH loop variables:
+    int is_local; // 1 => a function-local addressed by (var_depth, var_slot); 0 => global/by-name.
+    int var_depth; // Number of enclosing function frames to hop (0 = current frame).
+    int var_slot; // Slot index within that frame.
+    // For AST_FUNC_DEF: the number of slots its activation frame needs.
+    int frame_slots;
 } ASTNode;
 
 /**

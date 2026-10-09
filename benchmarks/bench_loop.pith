@@ -1,0 +1,9 @@
+# Arithmetic + loop microbenchmark.
+# Exercises the hot paths improved by literal caching and operator-code
+# dispatch: integer binary ops and variable access inside a tight while loop.
+int i = 0
+int sum = 0
+while (i < 3000000):
+    sum = sum + i * 2 - 1
+    i = i + 1
+print(sum)

@@ -1,0 +1,3 @@
+/home/celdridge/projects/pith/pith_lang/build/CMakeFiles/pith_lang.dir
+/home/celdridge/projects/pith/pith_lang/build/CMakeFiles/edit_cache.dir
+/home/celdridge/projects/pith/pith_lang/build/CMakeFiles/rebuild_cache.dir

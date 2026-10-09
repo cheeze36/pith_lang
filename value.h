@@ -236,14 +236,34 @@ struct BoundMethod
 /**
  * @brief Environment (Scope) for variable storage.
  *
- * Implemented as a linked list of variable bindings.
+ * An Env node serves two roles:
+ *
+ *  1. A *name binding* (the classic form): `name`/`val` hold a single binding and
+ *     `next` links to the rest of the chain. Globals, modules, natives, and all
+ *     top-level code use these. Lookups are by name (see env_get/env_assign).
+ *
+ *  2. A *function frame*: `slots` holds an array of local variables addressed by
+ *     index, `slot_count` is its length, and `enclosing` points at the frame of
+ *     the lexically enclosing function (for closures). Frame nodes have
+ *     `name == NULL`; their `next` points at the captured name environment
+ *     (the closure's globals/module scope) so name-based fallback still works.
+ *
+ * The resolver (resolver.c) assigns a (depth, slot) to every local variable
+ * reference so the interpreter can index `slots` directly instead of walking the
+ * chain and comparing names. References it cannot place statically fall back to
+ * name-based lookup over `next`.
  */
 struct Env
 {
     ObjHeader obj;
-    char *name;
-    Value val;
-    struct Env *next;
+    char *name; // Binding name (NULL for function-frame nodes).
+    Value val; // Binding value (name nodes only).
+    struct Env *next; // Next link: chain for name nodes; captured name env for frames.
+
+    // Function-frame fields (slots == NULL for plain name-binding nodes):
+    Value *slots; // Array of local variable slots.
+    int slot_count; // Number of slots.
+    struct Env *enclosing; // Enclosing function frame (for closures / depth > 0).
 };
 
 /**
