@@ -9,6 +9,7 @@
 #ifndef PITH_INTERPRETER_H
 #define PITH_INTERPRETER_H
 
+#include <stddef.h>
 #include "parser.h"
 #include "value.h"
 #include "common.h" // Include the new common header for error reporting
@@ -30,6 +31,14 @@ void interpret(ASTNode *root);
  */
 char *read_file_content(const char *filename);
 
+/**
+ * @brief Reads an entire file, preserving every byte (binary-safe).
+ * @param filename The path to the file.
+ * @param length_out If non-NULL, receives the number of bytes read.
+ * @return A malloc'd buffer (bytes plus a terminating NUL), or NULL on failure.
+ */
+char *read_file_bytes(const char *filename, long *length_out);
+
 // --- Global State ---
 
 /**
@@ -48,9 +57,88 @@ extern HashMap *native_string_methods;
 extern HashMap *native_list_methods;
 
 /**
+ * @brief Registry of native methods for maps (len, has, get, keys, values, remove).
+ */
+extern HashMap *native_map_methods;
+
+/**
  * @brief Registry for native module functions (e.g., math.sqrt, io.read_file).
  */
 extern HashMap *native_module_funcs;
+
+// --- Native Registration Helpers ---
+//
+// These helpers are defined in interpreter.c but are exposed here so that
+// native modules living in their own translation units (e.g. the optional
+// `gui` module in lib/gui.c) can build their own function tables using the exact
+// same machinery as the built-in math/io/sys modules.
+
+/**
+ * @brief Creates a new, empty hashmap.
+ * @param key_type The value type used for keys (modules use VAL_STRING).
+ * @param value_type The value type stored (module tables use VAL_NATIVE_FN).
+ * @return A newly allocated, GC-managed hashmap.
+ */
+HashMap *hashmap_create(ValueType key_type, ValueType value_type);
+
+/**
+ * @brief Inserts or updates an entry in a hashmap.
+ * @param map The target hashmap.
+ * @param key The (string) key to set.
+ * @param value The value to store.
+ * @param line_num Source line for error reporting (0 when not applicable).
+ */
+void hashmap_set(HashMap *map, const char *key, Value value, int line_num);
+
+/**
+ * @brief Looks up an entry in a hashmap.
+ * @param map The hashmap to search.
+ * @param key The (string) key to find.
+ * @return The stored value, or a VAL_VOID value if the key is absent.
+ */
+Value hashmap_get(HashMap *map, const char *key);
+
+/**
+ * @brief Tests whether a hashmap contains a key (even if its value is void).
+ * @param map The hashmap to search.
+ * @param key The (string) key to find.
+ * @return 1 if present, 0 otherwise.
+ */
+int hashmap_has(HashMap *map, const char *key);
+
+/**
+ * @brief Appends an item to a list, growing it as needed (no type check).
+ * @param list The list (must not be fixed-size).
+ * @param item The item to append.
+ */
+void list_add(List *list, Value item);
+
+/**
+ * @brief Removes a key from a hashmap.
+ * @return 1 if the key was present, 0 otherwise.
+ */
+int hashmap_remove(HashMap *map, const char *key);
+
+/**
+ * @brief Returns a hashmap's entries in insertion order.
+ * @return A malloc'd array of map->count entries; the caller frees it.
+ */
+MapEntry **hashmap_entries_in_order(HashMap *map);
+
+/**
+ * @brief Returns the user-facing name of a value type ("int", "string", ...).
+ * @param type The value type.
+ * @return A static string.
+ */
+const char *get_value_type_name(ValueType type);
+
+/**
+ * @brief Registers a C function as a named entry in a module/method table.
+ * @param method_map The table to add the function to.
+ * @param name The name the function will be exposed under (e.g. "button").
+ * @param function The C implementation to call.
+ */
+void register_native_method(HashMap *method_map, const char *name, NativeFn function);
 
 // --- Initialization Functions ---
 
@@ -116,5 +204,41 @@ void set_exec_error_line(int line);
  * @return The line number.
  */
 int get_exec_error_line();
+
+/**
+ * @brief Discards all active try handlers.
+ *
+ * For the REPL's error-recovery path: its longjmp (e.g. on Ctrl+C) can unwind
+ * past try statements without popping their handler frames.
+ */
+void reset_try_frames(void);
+
+/**
+ * @brief Calls a Pith function (or native function) from C.
+ *
+ * Arity and declared parameter/return types are checked as for a call written
+ * in Pith. Errors are reported normally (they reach any active `try`).
+ *
+ * @param callee The function value.
+ * @param args Arguments; heap values among them must be GC-rooted by the caller.
+ * @param arg_count Number of arguments.
+ * @param line Line to blame in error messages (0 if none).
+ * @return The function's result.
+ */
+Value interpreter_call(Value callee, Value *args, int arg_count, int line);
+
+/**
+ * @brief Like interpreter_call(), but catches any error the call raises.
+ *
+ * For native code that runs Pith callbacks and must keep going when one fails
+ * (e.g. the http server's route handlers).
+ *
+ * @param result Receives the result when the call succeeds.
+ * @param error Receives the error message when it fails.
+ * @param error_size Size of @p error.
+ * @return 0 on success, 1 if the callee raised an error.
+ */
+int interpreter_call_protected(Value callee, Value *args, int arg_count, Value *result, char *error,
+                               size_t error_size);
 
 #endif //PITH_INTERPRETER_H

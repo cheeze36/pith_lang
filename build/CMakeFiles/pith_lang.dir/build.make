@@ -167,6 +167,188 @@ CMakeFiles/pith_lang.dir/resolver.c.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/pith_lang.dir/resolver.c.s"
 	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /home/celdridge/projects/pith/pith_lang/resolver.c -o CMakeFiles/pith_lang.dir/resolver.c.s
 
+CMakeFiles/pith_lang.dir/pith_string.c.o: CMakeFiles/pith_lang.dir/flags.make
+CMakeFiles/pith_lang.dir/pith_string.c.o: /home/celdridge/projects/pith/pith_lang/pith_string.c
+CMakeFiles/pith_lang.dir/pith_string.c.o: CMakeFiles/pith_lang.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/celdridge/projects/pith/pith_lang/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_8) "Building C object CMakeFiles/pith_lang.dir/pith_string.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/pith_lang.dir/pith_string.c.o -MF CMakeFiles/pith_lang.dir/pith_string.c.o.d -o CMakeFiles/pith_lang.dir/pith_string.c.o -c /home/celdridge/projects/pith/pith_lang/pith_string.c
+
+CMakeFiles/pith_lang.dir/pith_string.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/pith_lang.dir/pith_string.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /home/celdridge/projects/pith/pith_lang/pith_string.c > CMakeFiles/pith_lang.dir/pith_string.c.i
+
+CMakeFiles/pith_lang.dir/pith_string.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/pith_lang.dir/pith_string.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /home/celdridge/projects/pith/pith_lang/pith_string.c -o CMakeFiles/pith_lang.dir/pith_string.c.s
+
+CMakeFiles/pith_lang.dir/types.c.o: CMakeFiles/pith_lang.dir/flags.make
+CMakeFiles/pith_lang.dir/types.c.o: /home/celdridge/projects/pith/pith_lang/types.c
+CMakeFiles/pith_lang.dir/types.c.o: CMakeFiles/pith_lang.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/celdridge/projects/pith/pith_lang/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_9) "Building C object CMakeFiles/pith_lang.dir/types.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/pith_lang.dir/types.c.o -MF CMakeFiles/pith_lang.dir/types.c.o.d -o CMakeFiles/pith_lang.dir/types.c.o -c /home/celdridge/projects/pith/pith_lang/types.c
+
+CMakeFiles/pith_lang.dir/types.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/pith_lang.dir/types.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /home/celdridge/projects/pith/pith_lang/types.c > CMakeFiles/pith_lang.dir/types.c.i
+
+CMakeFiles/pith_lang.dir/types.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/pith_lang.dir/types.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /home/celdridge/projects/pith/pith_lang/types.c -o CMakeFiles/pith_lang.dir/types.c.s
+
+CMakeFiles/pith_lang.dir/native_object.c.o: CMakeFiles/pith_lang.dir/flags.make
+CMakeFiles/pith_lang.dir/native_object.c.o: /home/celdridge/projects/pith/pith_lang/native_object.c
+CMakeFiles/pith_lang.dir/native_object.c.o: CMakeFiles/pith_lang.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/celdridge/projects/pith/pith_lang/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_10) "Building C object CMakeFiles/pith_lang.dir/native_object.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/pith_lang.dir/native_object.c.o -MF CMakeFiles/pith_lang.dir/native_object.c.o.d -o CMakeFiles/pith_lang.dir/native_object.c.o -c /home/celdridge/projects/pith/pith_lang/native_object.c
+
+CMakeFiles/pith_lang.dir/native_object.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/pith_lang.dir/native_object.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /home/celdridge/projects/pith/pith_lang/native_object.c > CMakeFiles/pith_lang.dir/native_object.c.i
+
+CMakeFiles/pith_lang.dir/native_object.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/pith_lang.dir/native_object.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /home/celdridge/projects/pith/pith_lang/native_object.c -o CMakeFiles/pith_lang.dir/native_object.c.s
+
+CMakeFiles/pith_lang.dir/lib/io_module.c.o: CMakeFiles/pith_lang.dir/flags.make
+CMakeFiles/pith_lang.dir/lib/io_module.c.o: /home/celdridge/projects/pith/pith_lang/lib/io_module.c
+CMakeFiles/pith_lang.dir/lib/io_module.c.o: CMakeFiles/pith_lang.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/celdridge/projects/pith/pith_lang/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_11) "Building C object CMakeFiles/pith_lang.dir/lib/io_module.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/pith_lang.dir/lib/io_module.c.o -MF CMakeFiles/pith_lang.dir/lib/io_module.c.o.d -o CMakeFiles/pith_lang.dir/lib/io_module.c.o -c /home/celdridge/projects/pith/pith_lang/lib/io_module.c
+
+CMakeFiles/pith_lang.dir/lib/io_module.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/pith_lang.dir/lib/io_module.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /home/celdridge/projects/pith/pith_lang/lib/io_module.c > CMakeFiles/pith_lang.dir/lib/io_module.c.i
+
+CMakeFiles/pith_lang.dir/lib/io_module.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/pith_lang.dir/lib/io_module.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /home/celdridge/projects/pith/pith_lang/lib/io_module.c -o CMakeFiles/pith_lang.dir/lib/io_module.c.s
+
+CMakeFiles/pith_lang.dir/lib/sys_module.c.o: CMakeFiles/pith_lang.dir/flags.make
+CMakeFiles/pith_lang.dir/lib/sys_module.c.o: /home/celdridge/projects/pith/pith_lang/lib/sys_module.c
+CMakeFiles/pith_lang.dir/lib/sys_module.c.o: CMakeFiles/pith_lang.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/celdridge/projects/pith/pith_lang/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_12) "Building C object CMakeFiles/pith_lang.dir/lib/sys_module.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/pith_lang.dir/lib/sys_module.c.o -MF CMakeFiles/pith_lang.dir/lib/sys_module.c.o.d -o CMakeFiles/pith_lang.dir/lib/sys_module.c.o -c /home/celdridge/projects/pith/pith_lang/lib/sys_module.c
+
+CMakeFiles/pith_lang.dir/lib/sys_module.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/pith_lang.dir/lib/sys_module.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /home/celdridge/projects/pith/pith_lang/lib/sys_module.c > CMakeFiles/pith_lang.dir/lib/sys_module.c.i
+
+CMakeFiles/pith_lang.dir/lib/sys_module.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/pith_lang.dir/lib/sys_module.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /home/celdridge/projects/pith/pith_lang/lib/sys_module.c -o CMakeFiles/pith_lang.dir/lib/sys_module.c.s
+
+CMakeFiles/pith_lang.dir/lib/time_module.c.o: CMakeFiles/pith_lang.dir/flags.make
+CMakeFiles/pith_lang.dir/lib/time_module.c.o: /home/celdridge/projects/pith/pith_lang/lib/time_module.c
+CMakeFiles/pith_lang.dir/lib/time_module.c.o: CMakeFiles/pith_lang.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/celdridge/projects/pith/pith_lang/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_13) "Building C object CMakeFiles/pith_lang.dir/lib/time_module.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/pith_lang.dir/lib/time_module.c.o -MF CMakeFiles/pith_lang.dir/lib/time_module.c.o.d -o CMakeFiles/pith_lang.dir/lib/time_module.c.o -c /home/celdridge/projects/pith/pith_lang/lib/time_module.c
+
+CMakeFiles/pith_lang.dir/lib/time_module.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/pith_lang.dir/lib/time_module.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /home/celdridge/projects/pith/pith_lang/lib/time_module.c > CMakeFiles/pith_lang.dir/lib/time_module.c.i
+
+CMakeFiles/pith_lang.dir/lib/time_module.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/pith_lang.dir/lib/time_module.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /home/celdridge/projects/pith/pith_lang/lib/time_module.c -o CMakeFiles/pith_lang.dir/lib/time_module.c.s
+
+CMakeFiles/pith_lang.dir/lib/http_module.c.o: CMakeFiles/pith_lang.dir/flags.make
+CMakeFiles/pith_lang.dir/lib/http_module.c.o: /home/celdridge/projects/pith/pith_lang/lib/http_module.c
+CMakeFiles/pith_lang.dir/lib/http_module.c.o: CMakeFiles/pith_lang.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/celdridge/projects/pith/pith_lang/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_14) "Building C object CMakeFiles/pith_lang.dir/lib/http_module.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/pith_lang.dir/lib/http_module.c.o -MF CMakeFiles/pith_lang.dir/lib/http_module.c.o.d -o CMakeFiles/pith_lang.dir/lib/http_module.c.o -c /home/celdridge/projects/pith/pith_lang/lib/http_module.c
+
+CMakeFiles/pith_lang.dir/lib/http_module.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/pith_lang.dir/lib/http_module.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /home/celdridge/projects/pith/pith_lang/lib/http_module.c > CMakeFiles/pith_lang.dir/lib/http_module.c.i
+
+CMakeFiles/pith_lang.dir/lib/http_module.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/pith_lang.dir/lib/http_module.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /home/celdridge/projects/pith/pith_lang/lib/http_module.c -o CMakeFiles/pith_lang.dir/lib/http_module.c.s
+
+CMakeFiles/pith_lang.dir/lib/json_module.c.o: CMakeFiles/pith_lang.dir/flags.make
+CMakeFiles/pith_lang.dir/lib/json_module.c.o: /home/celdridge/projects/pith/pith_lang/lib/json_module.c
+CMakeFiles/pith_lang.dir/lib/json_module.c.o: CMakeFiles/pith_lang.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/celdridge/projects/pith/pith_lang/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_15) "Building C object CMakeFiles/pith_lang.dir/lib/json_module.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/pith_lang.dir/lib/json_module.c.o -MF CMakeFiles/pith_lang.dir/lib/json_module.c.o.d -o CMakeFiles/pith_lang.dir/lib/json_module.c.o -c /home/celdridge/projects/pith/pith_lang/lib/json_module.c
+
+CMakeFiles/pith_lang.dir/lib/json_module.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/pith_lang.dir/lib/json_module.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /home/celdridge/projects/pith/pith_lang/lib/json_module.c > CMakeFiles/pith_lang.dir/lib/json_module.c.i
+
+CMakeFiles/pith_lang.dir/lib/json_module.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/pith_lang.dir/lib/json_module.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /home/celdridge/projects/pith/pith_lang/lib/json_module.c -o CMakeFiles/pith_lang.dir/lib/json_module.c.s
+
+CMakeFiles/pith_lang.dir/lib/regex_module.c.o: CMakeFiles/pith_lang.dir/flags.make
+CMakeFiles/pith_lang.dir/lib/regex_module.c.o: /home/celdridge/projects/pith/pith_lang/lib/regex_module.c
+CMakeFiles/pith_lang.dir/lib/regex_module.c.o: CMakeFiles/pith_lang.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/celdridge/projects/pith/pith_lang/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_16) "Building C object CMakeFiles/pith_lang.dir/lib/regex_module.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/pith_lang.dir/lib/regex_module.c.o -MF CMakeFiles/pith_lang.dir/lib/regex_module.c.o.d -o CMakeFiles/pith_lang.dir/lib/regex_module.c.o -c /home/celdridge/projects/pith/pith_lang/lib/regex_module.c
+
+CMakeFiles/pith_lang.dir/lib/regex_module.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/pith_lang.dir/lib/regex_module.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /home/celdridge/projects/pith/pith_lang/lib/regex_module.c > CMakeFiles/pith_lang.dir/lib/regex_module.c.i
+
+CMakeFiles/pith_lang.dir/lib/regex_module.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/pith_lang.dir/lib/regex_module.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /home/celdridge/projects/pith/pith_lang/lib/regex_module.c -o CMakeFiles/pith_lang.dir/lib/regex_module.c.s
+
+CMakeFiles/pith_lang.dir/lib/encoding_module.c.o: CMakeFiles/pith_lang.dir/flags.make
+CMakeFiles/pith_lang.dir/lib/encoding_module.c.o: /home/celdridge/projects/pith/pith_lang/lib/encoding_module.c
+CMakeFiles/pith_lang.dir/lib/encoding_module.c.o: CMakeFiles/pith_lang.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/celdridge/projects/pith/pith_lang/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_17) "Building C object CMakeFiles/pith_lang.dir/lib/encoding_module.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/pith_lang.dir/lib/encoding_module.c.o -MF CMakeFiles/pith_lang.dir/lib/encoding_module.c.o.d -o CMakeFiles/pith_lang.dir/lib/encoding_module.c.o -c /home/celdridge/projects/pith/pith_lang/lib/encoding_module.c
+
+CMakeFiles/pith_lang.dir/lib/encoding_module.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/pith_lang.dir/lib/encoding_module.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /home/celdridge/projects/pith/pith_lang/lib/encoding_module.c > CMakeFiles/pith_lang.dir/lib/encoding_module.c.i
+
+CMakeFiles/pith_lang.dir/lib/encoding_module.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/pith_lang.dir/lib/encoding_module.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /home/celdridge/projects/pith/pith_lang/lib/encoding_module.c -o CMakeFiles/pith_lang.dir/lib/encoding_module.c.s
+
+CMakeFiles/pith_lang.dir/lib/crypto_module.c.o: CMakeFiles/pith_lang.dir/flags.make
+CMakeFiles/pith_lang.dir/lib/crypto_module.c.o: /home/celdridge/projects/pith/pith_lang/lib/crypto_module.c
+CMakeFiles/pith_lang.dir/lib/crypto_module.c.o: CMakeFiles/pith_lang.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/celdridge/projects/pith/pith_lang/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_18) "Building C object CMakeFiles/pith_lang.dir/lib/crypto_module.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/pith_lang.dir/lib/crypto_module.c.o -MF CMakeFiles/pith_lang.dir/lib/crypto_module.c.o.d -o CMakeFiles/pith_lang.dir/lib/crypto_module.c.o -c /home/celdridge/projects/pith/pith_lang/lib/crypto_module.c
+
+CMakeFiles/pith_lang.dir/lib/crypto_module.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/pith_lang.dir/lib/crypto_module.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /home/celdridge/projects/pith/pith_lang/lib/crypto_module.c > CMakeFiles/pith_lang.dir/lib/crypto_module.c.i
+
+CMakeFiles/pith_lang.dir/lib/crypto_module.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/pith_lang.dir/lib/crypto_module.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /home/celdridge/projects/pith/pith_lang/lib/crypto_module.c -o CMakeFiles/pith_lang.dir/lib/crypto_module.c.s
+
+CMakeFiles/pith_lang.dir/lib/sha256.c.o: CMakeFiles/pith_lang.dir/flags.make
+CMakeFiles/pith_lang.dir/lib/sha256.c.o: /home/celdridge/projects/pith/pith_lang/lib/sha256.c
+CMakeFiles/pith_lang.dir/lib/sha256.c.o: CMakeFiles/pith_lang.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/celdridge/projects/pith/pith_lang/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_19) "Building C object CMakeFiles/pith_lang.dir/lib/sha256.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/pith_lang.dir/lib/sha256.c.o -MF CMakeFiles/pith_lang.dir/lib/sha256.c.o.d -o CMakeFiles/pith_lang.dir/lib/sha256.c.o -c /home/celdridge/projects/pith/pith_lang/lib/sha256.c
+
+CMakeFiles/pith_lang.dir/lib/sha256.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/pith_lang.dir/lib/sha256.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /home/celdridge/projects/pith/pith_lang/lib/sha256.c > CMakeFiles/pith_lang.dir/lib/sha256.c.i
+
+CMakeFiles/pith_lang.dir/lib/sha256.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/pith_lang.dir/lib/sha256.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /home/celdridge/projects/pith/pith_lang/lib/sha256.c -o CMakeFiles/pith_lang.dir/lib/sha256.c.s
+
+CMakeFiles/pith_lang.dir/lib/gui.c.o: CMakeFiles/pith_lang.dir/flags.make
+CMakeFiles/pith_lang.dir/lib/gui.c.o: /home/celdridge/projects/pith/pith_lang/lib/gui.c
+CMakeFiles/pith_lang.dir/lib/gui.c.o: CMakeFiles/pith_lang.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/celdridge/projects/pith/pith_lang/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_20) "Building C object CMakeFiles/pith_lang.dir/lib/gui.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/pith_lang.dir/lib/gui.c.o -MF CMakeFiles/pith_lang.dir/lib/gui.c.o.d -o CMakeFiles/pith_lang.dir/lib/gui.c.o -c /home/celdridge/projects/pith/pith_lang/lib/gui.c
+
+CMakeFiles/pith_lang.dir/lib/gui.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/pith_lang.dir/lib/gui.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /home/celdridge/projects/pith/pith_lang/lib/gui.c > CMakeFiles/pith_lang.dir/lib/gui.c.i
+
+CMakeFiles/pith_lang.dir/lib/gui.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/pith_lang.dir/lib/gui.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /home/celdridge/projects/pith/pith_lang/lib/gui.c -o CMakeFiles/pith_lang.dir/lib/gui.c.s
+
 # Object files for target pith_lang
 pith_lang_OBJECTS = \
 "CMakeFiles/pith_lang.dir/main.c.o" \
@@ -175,7 +357,20 @@ pith_lang_OBJECTS = \
 "CMakeFiles/pith_lang.dir/interpreter.c.o" \
 "CMakeFiles/pith_lang.dir/repl.c.o" \
 "CMakeFiles/pith_lang.dir/gc.c.o" \
-"CMakeFiles/pith_lang.dir/resolver.c.o"
+"CMakeFiles/pith_lang.dir/resolver.c.o" \
+"CMakeFiles/pith_lang.dir/pith_string.c.o" \
+"CMakeFiles/pith_lang.dir/types.c.o" \
+"CMakeFiles/pith_lang.dir/native_object.c.o" \
+"CMakeFiles/pith_lang.dir/lib/io_module.c.o" \
+"CMakeFiles/pith_lang.dir/lib/sys_module.c.o" \
+"CMakeFiles/pith_lang.dir/lib/time_module.c.o" \
+"CMakeFiles/pith_lang.dir/lib/http_module.c.o" \
+"CMakeFiles/pith_lang.dir/lib/json_module.c.o" \
+"CMakeFiles/pith_lang.dir/lib/regex_module.c.o" \
+"CMakeFiles/pith_lang.dir/lib/encoding_module.c.o" \
+"CMakeFiles/pith_lang.dir/lib/crypto_module.c.o" \
+"CMakeFiles/pith_lang.dir/lib/sha256.c.o" \
+"CMakeFiles/pith_lang.dir/lib/gui.c.o"
 
 # External object files for target pith_lang
 pith_lang_EXTERNAL_OBJECTS =
@@ -187,9 +382,29 @@ pith_lang: CMakeFiles/pith_lang.dir/interpreter.c.o
 pith_lang: CMakeFiles/pith_lang.dir/repl.c.o
 pith_lang: CMakeFiles/pith_lang.dir/gc.c.o
 pith_lang: CMakeFiles/pith_lang.dir/resolver.c.o
+pith_lang: CMakeFiles/pith_lang.dir/pith_string.c.o
+pith_lang: CMakeFiles/pith_lang.dir/types.c.o
+pith_lang: CMakeFiles/pith_lang.dir/native_object.c.o
+pith_lang: CMakeFiles/pith_lang.dir/lib/io_module.c.o
+pith_lang: CMakeFiles/pith_lang.dir/lib/sys_module.c.o
+pith_lang: CMakeFiles/pith_lang.dir/lib/time_module.c.o
+pith_lang: CMakeFiles/pith_lang.dir/lib/http_module.c.o
+pith_lang: CMakeFiles/pith_lang.dir/lib/json_module.c.o
+pith_lang: CMakeFiles/pith_lang.dir/lib/regex_module.c.o
+pith_lang: CMakeFiles/pith_lang.dir/lib/encoding_module.c.o
+pith_lang: CMakeFiles/pith_lang.dir/lib/crypto_module.c.o
+pith_lang: CMakeFiles/pith_lang.dir/lib/sha256.c.o
+pith_lang: CMakeFiles/pith_lang.dir/lib/gui.c.o
 pith_lang: CMakeFiles/pith_lang.dir/build.make
+pith_lang: _deps/raylib-build/raylib/libraylib.a
+pith_lang: /usr/lib/x86_64-linux-gnu/libOpenGL.so
+pith_lang: /usr/lib/x86_64-linux-gnu/libGLX.so
+pith_lang: /usr/lib/x86_64-linux-gnu/libGLU.so
+pith_lang: _deps/raylib-build/raylib/external/glfw/src/libglfw3.a
+pith_lang: /usr/lib/x86_64-linux-gnu/librt.a
+pith_lang: /usr/lib/x86_64-linux-gnu/libm.so
 pith_lang: CMakeFiles/pith_lang.dir/link.txt
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/home/celdridge/projects/pith/pith_lang/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_8) "Linking C executable pith_lang"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/home/celdridge/projects/pith/pith_lang/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_21) "Linking C executable pith_lang"
 	$(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/pith_lang.dir/link.txt --verbose=$(VERBOSE)
 
 # Rule to build all files generated by this target.

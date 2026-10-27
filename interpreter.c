@@ -13,7 +13,21 @@
 #include "debug.h"
 #include "common.h"
 #include "gc.h" // Include GC
+#include "pith_string.h" // Immutable GC-managed strings
+#include "types.h" // Declared-type enforcement
+#include "native_object.h" // C-backed objects (Regex, ...)
 #include "resolver.h" // Static variable-resolution pass
+#include "time_module.h" // Native `time` module (sleep, timers, formatting)
+#include "http_module.h" // Native `http` module (basic web server)
+#include "json_module.h" // Native `json` module (encode/decode)
+#include "io_module.h" // Native `io` module (files, directories, paths)
+#include "sys_module.h" // Native `sys` module (args, environment, cwd)
+#include "regex_module.h" // Native `regex` module (linear-time regular expressions)
+#include "encoding_module.h" // Native `encoding` module (base64, hex)
+#include "crypto_module.h" // Native `crypto` module (secure random, SHA-256, HMAC, passwords)
+#ifdef PITH_ENABLE_GUI
+#include "gui.h" // Optional raylib/raygui-backed `gui` module
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -21,6 +35,22 @@
 #include <stdarg.h>
 #include <time.h>
 #include <ctype.h>
+#include <setjmp.h>
+#include <limits.h>
+#include <stdint.h>
+#if !defined(_WIN32)
+#include <sys/resource.h> // getrlimit() for the stack guard
+#endif
+
+// M_PI / M_E are not part of standard C99 (they are a POSIX/GNU extension), so
+// they may be absent when building with -std=c99. Define fallbacks for the
+// math module's PI/E constants.
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+#ifndef M_E
+#define M_E 2.71828182845904523536
+#endif
 
 // --- Environment ---
 // Env struct definition moved to value.h
@@ -30,6 +60,7 @@ Env *global_env = NULL;
 // --- Native Registries ---
 HashMap *native_string_methods;
 HashMap *native_list_methods;
+HashMap *native_map_methods;
 HashMap *native_module_funcs;
 
 // --- Forward Declarations ---
@@ -45,6 +76,8 @@ void hashmap_set(HashMap *map, const char *key, Value value, int line_num);
 
 Value hashmap_get(HashMap *map, const char *key);
 
+void env_define_typed(Env **env_ptr, const char *name, Value val, TypeSpec *type);
+
 void interpret(ASTNode *root);
 
 char *read_file_content(const char *filename);
@@ -57,8 +90,6 @@ void register_all_native_methods();
 
 void register_all_native_modules();
 
-ValueType get_type_from_name(const char *type_name);
-
 void exec_module(ASTNode *root, Env **env_ptr);
 
 const char *get_value_type_name(ValueType type);
@@ -67,6 +98,95 @@ void default_report_error(int line, const char *format, ...);
 
 // --- Error Handling ---
 static error_reporter_t current_error_reporter = default_report_error;
+
+// --- Try Frames ---
+// Each `try` statement that is currently executing its body (or its rescue/else
+// clause) has a TryFrame on this stack. While one is active, report_error()
+// records the message in the innermost frame and longjmps to it instead of
+// printing and exiting; see exec_try().
+typedef struct TryFrame
+{
+    jmp_buf jump;
+    struct TryFrame *prev; // Next-outer active frame, or NULL.
+    int line; // Line of the caught error.
+    char message[1024]; // Message of the caught error.
+} TryFrame;
+
+static TryFrame *current_try = NULL;
+
+// Containers currently being printed, innermost last. A list or map that
+// (directly or indirectly) contains itself is printed as [...] / {...} the
+// second time it is reached, instead of recursing forever.
+static ObjHeader **printing_stack = NULL;
+static int printing_count = 0;
+static int printing_capacity = 0;
+
+// --- C Stack Guard (see common.h) ---
+
+/** Bytes of stack kept free beyond the budget: room for native code that runs
+ *  between checks (printf, regex compilation, report_error itself, ...). */
+#define STACK_SAFETY_MARGIN (512 * 1024)
+
+/** Stack size assumed when the OS does not report one; on Windows the build
+ *  links with exactly this much stack (see CMakeLists.txt). */
+#define DEFAULT_STACK_SIZE (8 * 1024 * 1024)
+
+/** Upper bound for an "unlimited" stack (ulimit -s unlimited). */
+#define MAX_STACK_BUDGET ((size_t) 1024 * 1024 * 1024)
+
+static uintptr_t stack_start_address = 0;
+static size_t stack_budget = 0; // Bytes of stack Pith may use below stack_start_address.
+
+/**
+ * @brief Address of the calling function's frame on the real C stack.
+ *
+ * Uses the compiler's frame address where available rather than the address of
+ * a local variable: AddressSanitizer moves address-taken locals onto a separate
+ * heap-allocated "fake stack" (to detect use-after-return), which would make
+ * stack depth measured through local addresses meaningless.
+ */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noinline))
+#endif
+static uintptr_t current_stack_address(void)
+{
+#if defined(__GNUC__) || defined(__clang__)
+    return (uintptr_t) __builtin_frame_address(0);
+#else
+    volatile char here;
+    return (uintptr_t) &here;
+#endif
+}
+
+void stack_guard_init(void)
+{
+    size_t stack_size = DEFAULT_STACK_SIZE;
+#if !defined(_WIN32)
+    struct rlimit limit;
+    if (getrlimit(RLIMIT_STACK, &limit) == 0)
+    {
+        if (limit.rlim_cur == RLIM_INFINITY || limit.rlim_cur > MAX_STACK_BUDGET)
+            stack_size = MAX_STACK_BUDGET;
+        else
+            stack_size = (size_t) limit.rlim_cur;
+    }
+#endif
+    stack_start_address = current_stack_address();
+    stack_budget = stack_size > 2 * STACK_SAFETY_MARGIN ? stack_size - STACK_SAFETY_MARGIN : stack_size / 2;
+}
+
+void check_stack_space(int line)
+{
+    if (stack_budget == 0)
+        return;
+    uintptr_t current = current_stack_address();
+    // The stack grows downwards on every supported platform, but measure the
+    // distance either way to stay correct regardless.
+    size_t used = current < stack_start_address ? stack_start_address - current : current - stack_start_address;
+    if (used > stack_budget)
+        report_error(line, "Stack overflow: recursion is too deep (a function that keeps calling itself, "
+                           "or data/expressions nested too deeply).");
+}
 
 // --- Error Reporting Context ---
 static const char *error_source = NULL;
@@ -163,34 +283,40 @@ void report_error(int line, const char *format, ...)
     char buffer[1024];
     vsnprintf(buffer, sizeof(buffer), format, args);
     va_end(args);
+
+    // Inside a try: hand the error to the innermost handler instead of reporting.
+    // The frame is popped here so an error raised later by the handler itself
+    // goes to the next-outer try (or the reporter).
+    if (current_try != NULL)
+    {
+        TryFrame *frame = current_try;
+        current_try = frame->prev;
+        frame->line = line;
+        snprintf(frame->message, sizeof(frame->message), "%s", buffer);
+        longjmp(frame->jump, 1);
+    }
+
     current_error_reporter(line, "%s", buffer);
 }
 
+void reset_try_frames(void)
+{
+    current_try = NULL;
+    printing_count = 0; // An error may have interrupted a print.
+}
+
 /**
- * @brief Creates a deep copy of a value.
+ * @brief Returns the value to store when a value is copied into a variable.
  *
- * Currently only strings need deep copying.
+ * Strings are immutable and every other heap value has reference semantics, so
+ * no deep copy is needed: the value is shared as-is. Kept as the single place
+ * that defines assignment semantics.
  *
  * @param v The value to copy.
- * @return The copied value.
+ * @return The value to store.
  */
 Value value_copy(Value v)
 {
-#ifdef DEBUG_TRACE_MEMORY
-    printf("[MEMORY] Copying value of type %s\n", get_value_type_name(v.type));
-#endif
-#ifdef DEBUG_TRACE_ADVANCED_MEMORY
-    if (v.type == VAL_STRING)
-        printf("[ADV_MEMORY] Copying string at %p\n", (void *) v.str_val);
-#endif
-
-    if (v.type == VAL_STRING)
-    {
-        Value new_v;
-        new_v.type = VAL_STRING;
-        new_v.str_val = strdup(v.str_val);
-        return new_v;
-    }
     return v;
 }
 
@@ -203,6 +329,17 @@ Value value_copy(Value v)
  */
 void env_define(Env **env_ptr, const char *name, Value val)
 {
+    env_define_typed(env_ptr, name, val, NULL);
+}
+
+/**
+ * @brief Defines a new variable with a declared type (NULL = untyped).
+ *
+ * The value must already satisfy @p type; later assignments are checked
+ * against it (see env_assign).
+ */
+void env_define_typed(Env **env_ptr, const char *name, Value val, TypeSpec *type)
+{
 #ifdef DEBUG_TRACE_ENVIRONMENT
     printf("[ENV] Defining variable '%s'\n", name);
 #endif
@@ -213,10 +350,13 @@ void env_define(Env **env_ptr, const char *name, Value val)
     printf("[DDI_ENV] Defining variable '%s'\n", name);
 #endif
 
-    // Use GC allocator for Env nodes
+    // Allocating the node may collect; keep `val` alive until it is linked in.
+    gc_push_value(val);
     Env *new_entry = (Env *) allocate_obj(sizeof(Env), OBJ_ENV);
+    gc_pop_root();
     new_entry->name = strdup(name);
     new_entry->val = value_copy(val);
+    new_entry->declared_type = type;
     new_entry->next = *env_ptr;
     new_entry->slots = NULL; // Name-binding node, not a function frame.
     new_entry->slot_count = 0;
@@ -246,24 +386,22 @@ void env_assign(Env *env, const char *name, Value val, int line)
     printf("[DDI_ENV] Assigning variable '%s'\n", name);
 #endif
 
-    while (env)
+    Env *binding = NULL;
+    for (Env *e = env; e != NULL && binding == NULL; e = e->next)
     {
-        if (env->name && strcmp(env->name, name) == 0) // Skip frame nodes (name == NULL).
-        {
-            env->val = value_copy(val);
-            return;
-        }
-        env = env->next;
+        if (e->name && strcmp(e->name, name) == 0) // Skip frame nodes (name == NULL).
+            binding = e;
     }
-    Env *g = global_env;
-    while (g)
+    for (Env *g = global_env; g != NULL && binding == NULL; g = g->next)
     {
         if (g->name && strcmp(g->name, name) == 0)
-        {
-            g->val = value_copy(val);
-            return;
-        }
-        g = g->next;
+            binding = g;
+    }
+    if (binding)
+    {
+        TYPE_REQUIRE(binding->declared_type, &val, line, "variable '%s'", name);
+        binding->val = value_copy(val);
+        return;
     }
     report_error(line, "Undefined variable '%s'.", name);
 }
@@ -332,17 +470,29 @@ static void frame_set_local(Env *env, int depth, int slot, Value val)
 }
 
 /**
+ * @brief Returns the declared type of a function-local slot (NULL = untyped).
+ */
+static TypeSpec *frame_slot_type(Env *env, int depth, int slot)
+{
+    while (depth-- > 0)
+        env = env->enclosing;
+    return env->slot_types ? env->slot_types[slot] : NULL;
+}
+
+/**
  * @brief Allocates a function activation frame.
  *
  * @param slot_count Number of local slots (from the resolver).
+ * @param slot_types Declared type of each slot (from the resolver; owned by the AST).
  * @param captured The function's captured environment (closure). Used for
  *        name-based fallback via `next`, and as the enclosing frame for closures.
  * @return The new frame (a GC-managed Env node with name == NULL).
  */
-static Env *make_frame(int slot_count, Env *captured)
+static Env *make_frame(int slot_count, TypeSpec **slot_types, Env *captured)
 {
     Env *frame = (Env *) allocate_obj(sizeof(Env), OBJ_ENV);
     frame->name = NULL;
+    frame->slot_types = slot_types;
     frame->val = (Value){VAL_VOID};
     frame->next = captured; // Name-based fallback reaches globals/module scope.
     frame->slot_count = slot_count;
@@ -370,7 +520,7 @@ static void bind_var(ASTNode *node, Env **env_ptr, Value val)
     if (node->is_local)
         frame_set_local(*env_ptr, node->var_depth, node->var_slot, val);
     else
-        env_define(env_ptr, node->value, val);
+        env_define_typed(env_ptr, node->value, val, node->type_spec);
 }
 
 const char *get_value_type_name(ValueType type)
@@ -401,19 +551,51 @@ const char *get_value_type_name(ValueType type)
             return "list";
         case VAL_HASHMAP:
             return "hashmap";
+        case VAL_NATIVE_OBJECT:
+            return "native object";
         default:
             return "unknown";
     }
 }
 
+static int is_being_printed(ObjHeader *container)
+{
+    for (int i = 0; i < printing_count; i++)
+    {
+        if (printing_stack[i] == container)
+            return 1;
+    }
+    return 0;
+}
+
+static void push_printing(ObjHeader *container)
+{
+    if (printing_count == printing_capacity)
+    {
+        printing_capacity = printing_capacity == 0 ? 16 : printing_capacity * 2;
+        printing_stack = realloc(printing_stack, sizeof(ObjHeader *) * (size_t) printing_capacity);
+    }
+    printing_stack[printing_count++] = container;
+}
+
+/**
+ * @brief Prints a value in the form `print` shows it.
+ *
+ * Lists and maps print their elements recursively; a container that contains
+ * itself prints as [...] / {...}, and pathologically deep nesting raises a
+ * stack-overflow error instead of crashing.
+ *
+ * @param v The value to print.
+ */
 void print_value(Value v)
 {
+    check_stack_space(0);
     if (v.type == VAL_INT)
-        printf("%d", v.int_val);
+        printf("%" PITH_INT_FMT, v.int_val);
     else if (v.type == VAL_FLOAT)
         printf("%f", v.float_val);
     else if (v.type == VAL_STRING)
-        printf("%s", v.str_val);
+        fwrite(v.string->chars, 1, (size_t) v.string->length, stdout); // May contain NUL bytes.
     else if (v.type == VAL_BOOL)
         printf("%s", v.int_val ? "true" : "false");
     else if (v.type == VAL_FUNC)
@@ -430,8 +612,16 @@ void print_value(Value v)
         printf("<instance of %s>", v.instance->pith_class->name);
     else if (v.type == VAL_BOUND_METHOD)
         printf("<bound method>");
+    else if (v.type == VAL_NATIVE_OBJECT)
+        printf("<%s>", v.native->cls->name);
     else if (v.type == VAL_LIST)
     {
+        if (is_being_printed((ObjHeader *) v.list))
+        {
+            printf("[...]");
+            return;
+        }
+        push_printing((ObjHeader *) v.list);
         printf("[");
         for (int i = 0; i < v.list->count; i++)
         {
@@ -440,25 +630,28 @@ void print_value(Value v)
                 printf(", ");
         }
         printf("]");
+        printing_count--;
     }
     else if (v.type == VAL_HASHMAP)
     {
-        printf("{");
-        int first = 1;
-        for (int i = 0; i < v.hashmap->bucket_count; i++)
+        if (is_being_printed((ObjHeader *) v.hashmap))
         {
-            MapEntry *entry = v.hashmap->buckets[i];
-            while (entry)
-            {
-                if (!first)
-                    printf(", ");
-                printf("%s: ", entry->key);
-                print_value(entry->value);
-                first = 0;
-                entry = entry->next;
-            }
+            printf("{...}");
+            return;
         }
+        push_printing((ObjHeader *) v.hashmap);
+        printf("{");
+        MapEntry **entries = hashmap_entries_in_order(v.hashmap);
+        for (int i = 0; i < v.hashmap->count; i++)
+        {
+            if (i > 0)
+                printf(", ");
+            printf("%s: ", entries[i]->key);
+            print_value(entries[i]->value);
+        }
+        free(entries);
         printf("}");
+        printing_count--;
     }
 }
 
@@ -473,7 +666,7 @@ Value native_clock(int arg_count, Value *args)
 #endif
     Value v;
     v.type = VAL_FLOAT;
-    v.float_val = (float) clock() / CLOCKS_PER_SEC;
+    v.float_val = (double) clock() / CLOCKS_PER_SEC;
     return v;
 }
 
@@ -492,12 +685,10 @@ Value native_input(int arg_count, Value *args)
     }
     fflush(stdout);
     char buffer[1024];
-    fgets(buffer, sizeof(buffer), stdin);
+    if (fgets(buffer, sizeof(buffer), stdin) == NULL)
+        buffer[0] = '\0'; // EOF: return an empty string.
     buffer[strcspn(buffer, "\n")] = 0;
-    Value v;
-    v.type = VAL_STRING;
-    v.str_val = strdup(buffer);
-    return v;
+    return cstring_value(buffer);
 }
 
 Value native_isinstance(int arg_count, Value *args)
@@ -567,13 +758,9 @@ Value native_list_append(int arg_count, Value *args)
         report_error(get_exec_error_line(), "append() takes exactly one argument.");
     if (args[0].type != VAL_LIST)
         report_error(get_exec_error_line(), "append() must be called on a list.");
-    // Runtime element type enforcement
-    if (args[0].list->element_type != VAL_VOID && args[1].type != args[0].list->element_type)
-    {
-        report_error(get_exec_error_line(), "Type mismatch: cannot append value of type '%s' to list<%s>.",
-                     get_value_type_name(args[1].type), get_value_type_name(args[0].list->element_type));
-    }
-    list_add(args[0].list, args[1]);
+    Value item = args[1];
+    TYPE_REQUIRE(args[0].list->element_spec, &item, get_exec_error_line(), "append() element");
+    list_add(args[0].list, item);
     return (Value){VAL_VOID};
 }
 
@@ -592,7 +779,7 @@ Value native_len(int arg_count, Value *args)
     v.type = VAL_INT;
     if (self.type == VAL_STRING)
     {
-        v.int_val = strlen(self.str_val);
+        v.int_val = self.string->length; // Bytes; see count() for characters.
     }
     else if (self.type == VAL_LIST)
     {
@@ -697,58 +884,221 @@ Value native_math_log(int arg_count, Value *args)
     return v;
 }
 
-// --- IO Module Native Functions ---
-Value native_io_read_file(int arg_count, Value *args)
+/**
+ * @brief Reads argument @p index as a double, accepting Pith int or float.
+ *
+ * Shared by the numeric math helpers below. @p fn_name is used only to make the
+ * error message point at the function the user actually called.
+ */
+static double math_arg_as_double(const char *fn_name, Value *args, int index)
 {
-    if (arg_count != 1 || args[0].type != VAL_STRING)
-    {
-        report_error(0, "read_file() takes exactly one string argument (the path).");
-    }
-    char *content = read_file_content(args[0].str_val);
-    if (content == NULL)
-    {
-        return (Value){VAL_VOID};
-    }
-    Value v;
-    v.type = VAL_STRING;
-    v.str_val = content;
-    return v;
+    Value v = args[index];
+    if (v.type == VAL_INT)
+        return (double) v.int_val;
+    if (v.type == VAL_FLOAT)
+        return v.float_val;
+    report_error(get_exec_error_line(),
+                 "%s() argument %d must be a number.", fn_name, index + 1);
+    return 0.0; // Unreachable.
 }
 
-Value native_io_write_file(int arg_count, Value *args)
+// math.min(a, b) -> number. Returns the smaller of two numbers. The result is
+// an int only when both arguments are ints, so `min(3, 7)` prints as `3`.
+Value native_math_min(int arg_count, Value *args)
 {
-    if (arg_count != 2 || args[0].type != VAL_STRING || args[1].type != VAL_STRING)
+    if (arg_count != 2)
+        report_error(get_exec_error_line(), "min() takes exactly two arguments.");
+    Value v;
+    if (args[0].type == VAL_INT && args[1].type == VAL_INT)
     {
-        report_error(0, "write_file() takes two string arguments (path, content).");
-    }
-    FILE *file = fopen(args[0].str_val, "w");
-    if (file == NULL)
-    {
-        Value v;
-        v.type = VAL_BOOL;
-        v.int_val = 0;
+        // Compare ints directly: a double cannot hold every 64-bit int exactly.
+        v = args[0].int_val < args[1].int_val ? args[0] : args[1];
         return v;
     }
-    fprintf(file, "%s", args[1].str_val);
-    fclose(file);
+    double a = math_arg_as_double("min", args, 0);
+    double b = math_arg_as_double("min", args, 1);
+    v.type = VAL_FLOAT;
+    v.float_val = (a < b) ? a : b;
+    return v;
+}
+// math.max(a, b) -> number. Returns the larger of two numbers (int-preserving,
+// same rule as min()).
+Value native_math_max(int arg_count, Value *args)
+{
+    if (arg_count != 2)
+        report_error(get_exec_error_line(), "max() takes exactly two arguments.");
     Value v;
-    v.type = VAL_BOOL;
-    v.int_val = 1;
+    if (args[0].type == VAL_INT && args[1].type == VAL_INT)
+    {
+        v = args[0].int_val > args[1].int_val ? args[0] : args[1];
+        return v;
+    }
+    double a = math_arg_as_double("max", args, 0);
+    double b = math_arg_as_double("max", args, 1);
+    v.type = VAL_FLOAT;
+    v.float_val = (a > b) ? a : b;
+    return v;
+}
+// math.round(x) -> int. Rounds to the nearest integer, halves away from zero
+// (round(2.5) == 3, round(-2.5) == -3).
+Value native_math_round(int arg_count, Value *args)
+{
+    if (arg_count != 1)
+        report_error(get_exec_error_line(), "round() takes exactly one argument.");
+    if (args[0].type == VAL_INT)
+        return args[0];
+    double rounded = round(math_arg_as_double("round", args, 0));
+    // 2^63 is exactly representable; anything at or beyond it does not fit (NaN fails too).
+    if (!(rounded >= -9223372036854775808.0 && rounded < 9223372036854775808.0))
+        report_error(get_exec_error_line(), "round(): %g is out of range for an int.", rounded);
+    Value v;
+    v.type = VAL_INT;
+    v.int_val = (int64_t) rounded;
     return v;
 }
 
-// --- Sys Module Native Functions ---
-Value native_sys_exit(int arg_count, Value *args)
+// math.clamp(x, lo, hi) -> number. Constrains x to the range [lo, hi]. The
+// result is an int only when all three arguments are ints.
+Value native_math_clamp(int arg_count, Value *args)
+{
+    if (arg_count != 3)
+        report_error(get_exec_error_line(), "clamp() takes exactly three arguments (value, lo, hi).");
+    if (args[0].type == VAL_INT && args[1].type == VAL_INT && args[2].type == VAL_INT)
+    {
+        int64_t x = args[0].int_val, lo = args[1].int_val, hi = args[2].int_val;
+        if (lo > hi)
+            report_error(get_exec_error_line(), "clamp(): lo must not be greater than hi.");
+        Value v;
+        v.type = VAL_INT;
+        v.int_val = x < lo ? lo : (x > hi ? hi : x);
+        return v;
+    }
+    double x = math_arg_as_double("clamp", args, 0);
+    double lo = math_arg_as_double("clamp", args, 1);
+    double hi = math_arg_as_double("clamp", args, 2);
+    if (lo > hi)
+        report_error(get_exec_error_line(), "clamp(): lo must not be greater than hi.");
+    Value v;
+    v.type = VAL_FLOAT;
+    v.float_val = x < lo ? lo : (x > hi ? hi : x);
+    return v;
+}
+// --- Random Module Native Functions ---
+//
+// A small pseudo-random module built on the C library's rand()/srand(). It is
+// deterministic for a given seed, which is what makes it testable: seed the
+// generator and the sequence that follows is reproducible.
+
+// random.seed(n) -> void. Seeds the generator so a run is reproducible.
+Value native_random_seed(int arg_count, Value *args)
 {
     if (arg_count != 1 || args[0].type != VAL_INT)
+        report_error(get_exec_error_line(), "seed() takes exactly one integer argument.");
+    srand((unsigned int) args[0].int_val);
+    return (Value){VAL_VOID};
+}
+
+// random.int(min, max) -> int. Returns an integer in the inclusive range
+// [min, max].
+/**
+ * @brief 64 random bits from rand() (which may provide as few as 15 per call).
+ */
+static uint64_t random_u64(void)
+{
+    uint64_t r = 0;
+    for (int i = 0; i < 5; i++)
+        r = (r << 15) ^ (uint64_t) (rand() & 0x7FFF);
+    return r;
+}
+
+Value native_random_int(int arg_count, Value *args)
+{
+    if (arg_count != 2 || args[0].type != VAL_INT || args[1].type != VAL_INT)
+        report_error(get_exec_error_line(), "int() takes exactly two integer arguments (min, max).");
+    int64_t min = args[0].int_val;
+    int64_t max = args[1].int_val;
+    if (min > max)
+        report_error(get_exec_error_line(), "random.int(): min must not be greater than max.");
+
+    // Size of the inclusive range, computed unsigned so [INT64_MIN, INT64_MAX]
+    // does not overflow (its span wraps to 0, meaning "all 2^64 values").
+    uint64_t span = (uint64_t) max - (uint64_t) min + 1;
+    uint64_t offset = span == 0 ? random_u64() : random_u64() % span;
+    Value v;
+    v.type = VAL_INT;
+    v.int_val = (int64_t) ((uint64_t) min + offset);
+    return v;
+}
+// random.float() -> float. Returns a float in the half-open range [0.0, 1.0).
+Value native_random_float(int arg_count, Value *args)
+{
+    if (arg_count != 0)
+        report_error(get_exec_error_line(), "random.float() takes no arguments.");
+    Value v;
+    v.type = VAL_FLOAT;
+    // Divide by RAND_MAX + 1 so the result never quite reaches 1.0.
+    v.float_val = rand() / ((double) RAND_MAX + 1.0);
+    return v;
+}
+
+// random.choice(list) -> element. Returns a random element of a non-empty list.
+Value native_random_choice(int arg_count, Value *args)
+{
+    if (arg_count != 1 || args[0].type != VAL_LIST)
+        report_error(get_exec_error_line(), "choice() takes exactly one list argument.");
+    List *list = args[0].list;
+    if (list->count == 0)
+        report_error(get_exec_error_line(), "random.choice(): list must not be empty.");
+    return list->items[rand() % list->count];
+}
+
+// random.shuffle(list) -> void. Shuffles a list in place using the
+// Fisher-Yates algorithm, so every ordering is equally likely.
+Value native_random_shuffle(int arg_count, Value *args)
+{
+    if (arg_count != 1 || args[0].type != VAL_LIST)
+        report_error(get_exec_error_line(), "shuffle() takes exactly one list argument.");
+    List *list = args[0].list;
+    for (int i = list->count - 1; i > 0; i--)
     {
-        report_error(0, "exit() takes exactly one integer argument (the exit code).");
+        int j = rand() % (i + 1);
+        Value tmp = list->items[i];
+        list->items[i] = list->items[j];
+        list->items[j] = tmp;
     }
-    exit(args[0].int_val);
-    return (Value){VAL_VOID}; // Unreachable
+    return (Value){VAL_VOID};
 }
 
 // --- Integer Module Native Functions ---
+/**
+ * @brief Parses a whole string as a base-10 int ("-42"; no spaces or extra text).
+ *
+ * @return 1 on success (result in *out), 0 if the text is not a valid int.
+ */
+static int parse_int_strict(ObjString *text, int64_t *out)
+{
+    const char *p = text->chars;
+    const char *end = text->chars + text->length;
+    int negative = 0;
+    if (p < end && (*p == '-' || *p == '+'))
+        negative = *p++ == '-';
+    if (p == end)
+        return 0;
+    // Accumulate the magnitude unsigned; the limit allows exactly -2^63.
+    uint64_t limit = negative ? (uint64_t) INT64_MAX + 1 : (uint64_t) INT64_MAX;
+    uint64_t value = 0;
+    for (; p < end; p++)
+    {
+        if (*p < '0' || *p > '9')
+            return 0;
+        uint64_t digit = (uint64_t) (*p - '0');
+        if (value > (limit - digit) / 10)
+            return 0; // Out of range.
+        value = value * 10 + digit;
+    }
+    *out = negative ? (int64_t) (0 - value) : (int64_t) value;
+    return 1;
+}
 Value native_integer_fromString(int arg_count, Value *args)
 {
     if (arg_count != 1 || args[0].type != VAL_STRING)
@@ -757,7 +1107,115 @@ Value native_integer_fromString(int arg_count, Value *args)
     }
     Value v;
     v.type = VAL_INT;
-    v.int_val = atoi(args[0].str_val);
+    if (!parse_int_strict(args[0].string, &v.int_val))
+        report_error(get_exec_error_line(), "fromString(): '%s' is not a valid integer.", AS_CSTRING(args[0]));
+    return v;
+}
+
+// --- Conversion functions: str(), int(), float() ---
+// Pith never converts types implicitly (apart from int -> float widening);
+// these are the explicit conversions.
+
+/**
+ * @brief Formats a float as the shortest text that reads back as the same value
+ *        and still looks like a float: 2.5 -> "2.5", 3.0 -> "3.0", 0.1 -> "0.1".
+ */
+static void format_float(double f, char *buffer, size_t size)
+{
+    // Use the fewest digits (up to 17) that read back as exactly the same double.
+    for (int precision = 1; precision <= 17; precision++)
+    {
+        snprintf(buffer, size, "%.*g", precision, f);
+        if (strtod(buffer, NULL) == f)
+            break;
+    }
+    if (strpbrk(buffer, ".eEn") == NULL) // "n" covers nan/inf
+        strncat(buffer, ".0", size - strlen(buffer) - 1);
+}
+// str(x) -> string. Converts an int, float, bool or string to its text form.
+Value native_str(int arg_count, Value *args)
+{
+    if (arg_count != 1)
+        report_error(get_exec_error_line(), "str() takes exactly one argument.");
+    char buffer[64];
+    switch (args[0].type)
+    {
+        case VAL_STRING:
+            return args[0];
+        case VAL_INT:
+            snprintf(buffer, sizeof(buffer), "%" PITH_INT_FMT, args[0].int_val);
+            break;
+        case VAL_FLOAT:
+            format_float(args[0].float_val, buffer, sizeof(buffer));
+            break;
+        case VAL_BOOL:
+            snprintf(buffer, sizeof(buffer), "%s", args[0].int_val ? "true" : "false");
+            break;
+        default:
+            report_error(get_exec_error_line(), "str() cannot convert %s.", type_describe_value(args[0]));
+    }
+    return cstring_value(buffer);
+}
+
+// int(x) -> int. From a float (truncates toward zero) or a string such as "-42".
+Value native_int(int arg_count, Value *args)
+{
+    if (arg_count != 1)
+        report_error(get_exec_error_line(), "int() takes exactly one argument.");
+    Value v;
+    v.type = VAL_INT;
+    switch (args[0].type)
+    {
+        case VAL_INT:
+            return args[0];
+        case VAL_FLOAT:
+        {
+            double f = args[0].float_val;
+            // [-2^63, 2^63): both bounds are exact doubles. The test also rejects NaN.
+            if (!(f >= -9223372036854775808.0 && f < 9223372036854775808.0))
+                report_error(get_exec_error_line(), "int(): %g is out of range for an int.", f);
+            v.int_val = (int64_t) f; // Truncates toward zero.
+            return v;
+        }
+        case VAL_STRING:
+            if (!parse_int_strict(args[0].string, &v.int_val))
+                report_error(get_exec_error_line(), "int(): '%s' is not a valid integer.", AS_CSTRING(args[0]));
+            return v;
+        default:
+            report_error(get_exec_error_line(), "int() cannot convert %s.", type_describe_value(args[0]));
+    }
+    return v;
+}
+
+// float(x) -> float. From an int or a string such as "2.5" or "-1e3".
+Value native_float(int arg_count, Value *args)
+{
+    if (arg_count != 1)
+        report_error(get_exec_error_line(), "float() takes exactly one argument.");
+    Value v;
+    v.type = VAL_FLOAT;
+    switch (args[0].type)
+    {
+        case VAL_FLOAT:
+            return args[0];
+        case VAL_INT:
+            v.float_val = (double) args[0].int_val;
+            return v;
+        case VAL_STRING:
+        {
+            const char *text = AS_CSTRING(args[0]);
+            char *end;
+            double d = strtod(text, &end);
+            // The whole string must be a number (no leading spaces or trailing text).
+            if (args[0].string->length == 0 || isspace((unsigned char) text[0]) ||
+                end != text + args[0].string->length)
+                report_error(get_exec_error_line(), "float(): '%s' is not a valid number.", text);
+            v.float_val = d;
+            return v;
+        }
+        default:
+            report_error(get_exec_error_line(), "float() cannot convert %s.", type_describe_value(args[0]));
+    }
     return v;
 }
 
@@ -768,13 +1226,41 @@ Value native_integer_toString(int arg_count, Value *args)
         report_error(0, "toString() takes exactly one integer argument.");
     }
     char buffer[32];
-    snprintf(buffer, sizeof(buffer), "%d", args[0].int_val);
-    Value v;
-    v.type = VAL_STRING;
-    v.str_val = strdup(buffer);
-    return v;
+    snprintf(buffer, sizeof(buffer), "%" PITH_INT_FMT, args[0].int_val);
+    return cstring_value(buffer);
 }
 
+
+/**
+ * @brief Finds @p needle in @p haystack, byte-wise (both may contain NULs).
+ *
+ * @return Offset of the first match at or after @p from, or -1 if none.
+ */
+static int find_bytes(const char *haystack, int haystack_len, const char *needle, int needle_len, int from)
+{
+    for (int i = from; i + needle_len <= haystack_len; i++)
+    {
+        if (memcmp(haystack + i, needle, (size_t) needle_len) == 0)
+            return i;
+    }
+    return -1;
+}
+
+/**
+ * @brief Byte length of the UTF-8 character starting with byte @p lead.
+ *
+ * Invalid lead bytes count as one byte so malformed text still makes progress.
+ */
+static int utf8_char_length(unsigned char lead)
+{
+    if (lead >= 0xF0 && lead <= 0xF4)
+        return 4;
+    if (lead >= 0xE0)
+        return lead <= 0xEF ? 3 : 1;
+    if (lead >= 0xC2)
+        return 2;
+    return 1;
+}
 
 Value native_string_trim(int arg_count, Value *args)
 {
@@ -789,25 +1275,28 @@ Value native_string_trim(int arg_count, Value *args)
     if (args[0].type != VAL_STRING)
         report_error(0, "trim() must be called on a string.");
 
-    char *original = args[0].str_val;
-    char *start = original;
-    while (isspace(*start))
+    const char *chars = AS_CSTRING(args[0]);
+    int start = 0;
+    int end = STRING_LENGTH(args[0]);
+    while (start < end && isspace((unsigned char) chars[start]))
         start++;
-
-    char *end = original + strlen(original) - 1;
-    while (end > start && isspace(*end))
+    while (end > start && isspace((unsigned char) chars[end - 1]))
         end--;
-
-    char *new_str = malloc(end - start + 2);
-    strncpy(new_str, start, end - start + 1);
-    new_str[end - start + 1] = '\0';
-
-    Value v;
-    v.type = VAL_STRING;
-    v.str_val = new_str;
-    return v;
+    return string_value(chars + start, end - start);
 }
 
+// string.count() -> int. Number of UTF-8 characters (len() counts bytes).
+Value native_string_count(int arg_count, Value *args)
+{
+    if (arg_count != 1)
+        report_error(get_exec_error_line(), "count() takes no arguments.");
+    if (args[0].type != VAL_STRING)
+        report_error(get_exec_error_line(), "count() must be called on a string.");
+    Value v;
+    v.type = VAL_INT;
+    v.int_val = string_char_count(args[0].string);
+    return v;
+}
 Value native_string_split(int arg_count, Value *args)
 {
 #ifdef DEBUG_TRACE_NATIVE
@@ -825,61 +1314,40 @@ Value native_string_split(int arg_count, Value *args)
     list->count = 0;
     list->capacity = 4;
     list->is_fixed = 0;
+    list->element_spec = type_from_name("string");
     list->items = malloc(list->capacity * sizeof(Value));
+    // The list is only on the C stack while the pieces below are allocated.
     gc_push_root((ObjHeader *) list);
 
-    const char *str = args[0].str_val;
-    const char *delim = args[1].str_val;
-    size_t delim_len = strlen(delim);
+    // args[] are GC-rooted by the caller, so these pointers stay valid.
+    const char *str = AS_CSTRING(args[0]);
+    int str_len = STRING_LENGTH(args[0]);
+    const char *delim = AS_CSTRING(args[1]);
+    int delim_len = STRING_LENGTH(args[1]);
 
     if (delim_len == 0)
     {
-#ifdef DEBUG_TRACE_NATIVE
-        printf("[NATIVE_SPLIT] Delimiter is empty, returning list of characters.\n");
-#endif
-        for (int i = 0; str[i] != '\0'; i++)
+        // Empty delimiter: one piece per UTF-8 character (matching count()).
+        int i = 0;
+        while (i < str_len)
         {
-            char *char_str = malloc(2);
-            char_str[0] = str[i];
-            char_str[1] = '\0';
-            Value val;
-            val.type = VAL_STRING;
-            val.str_val = char_str;
-            list_add(list, val);
+            int char_len = utf8_char_length((unsigned char) str[i]);
+            if (i + char_len > str_len)
+                char_len = str_len - i;
+            list_add(list, string_value(str + i, char_len));
+            i += char_len;
         }
     }
     else
     {
-        const char *current_pos = str;
-        const char *found_pos;
-        while ((found_pos = strstr(current_pos, delim)) != NULL)
+        int piece_start = 0;
+        int found;
+        while ((found = find_bytes(str, str_len, delim, delim_len, piece_start)) >= 0)
         {
-            size_t len = found_pos - current_pos;
-            char *token = malloc(len + 1);
-            strncpy(token, current_pos, len);
-            token[len] = '\0';
-
-            Value val;
-            val.type = VAL_STRING;
-            val.str_val = token;
-            list_add(list, val);
-
-#ifdef DEBUG_TRACE_NATIVE
-            printf("[NATIVE_SPLIT] Found token: '%s'\n", token);
-#endif
-
-            current_pos = found_pos + delim_len;
+            list_add(list, string_value(str + piece_start, found - piece_start));
+            piece_start = found + delim_len;
         }
-
-        // Add the last token
-        char *last_token = strdup(current_pos);
-        Value val;
-        val.type = VAL_STRING;
-        val.str_val = last_token;
-        list_add(list, val);
-#ifdef DEBUG_TRACE_NATIVE
-        printf("[NATIVE_SPLIT] Found last token: '%s'\n", last_token);
-#endif
+        list_add(list, string_value(str + piece_start, str_len - piece_start));
     }
 
     gc_pop_root();
@@ -888,7 +1356,6 @@ Value native_string_split(int arg_count, Value *args)
     v.list = list;
     return v;
 }
-
 Value native_string_upper(int arg_count, Value *args)
 {
 #ifdef DEBUG_TRACE_NATIVE
@@ -902,19 +1369,17 @@ Value native_string_upper(int arg_count, Value *args)
     if (args[0].type != VAL_STRING)
         report_error(0, "upper() must be called on a string.");
 
-    char *original = args[0].str_val;
-    char *new_str = strdup(original);
-    for (int i = 0; new_str[i]; i++)
-    {
-        new_str[i] = toupper(new_str[i]);
-    }
+    // Strings are immutable: build a new one (ASCII letters only are changed).
+    int length = STRING_LENGTH(args[0]);
+    ObjString *result = string_alloc(length);
+    for (int i = 0; i < length; i++)
+        result->chars[i] = (char) toupper((unsigned char) AS_CSTRING(args[0])[i]);
 
     Value v;
     v.type = VAL_STRING;
-    v.str_val = new_str;
+    v.string = result;
     return v;
 }
-
 Value native_string_lower(int arg_count, Value *args)
 {
 #ifdef DEBUG_TRACE_NATIVE
@@ -928,19 +1393,17 @@ Value native_string_lower(int arg_count, Value *args)
     if (args[0].type != VAL_STRING)
         report_error(0, "lower() must be called on a string.");
 
-    char *original = args[0].str_val;
-    char *new_str = strdup(original);
-    for (int i = 0; new_str[i]; i++)
-    {
-        new_str[i] = tolower(new_str[i]);
-    }
+    // Strings are immutable: build a new one (ASCII letters only are changed).
+    int length = STRING_LENGTH(args[0]);
+    ObjString *result = string_alloc(length);
+    for (int i = 0; i < length; i++)
+        result->chars[i] = (char) tolower((unsigned char) AS_CSTRING(args[0])[i]);
 
     Value v;
     v.type = VAL_STRING;
-    v.str_val = new_str;
+    v.string = result;
     return v;
 }
-
 Value native_string_startswith(int arg_count, Value *args)
 {
 #ifdef DEBUG_TRACE_NATIVE
@@ -954,12 +1417,12 @@ Value native_string_startswith(int arg_count, Value *args)
     if (args[0].type != VAL_STRING || args[1].type != VAL_STRING)
         report_error(0, "startswith() requires a string object and a string prefix.");
 
-    char *str = args[0].str_val;
-    char *prefix = args[1].str_val;
+    ObjString *str = args[0].string;
+    ObjString *prefix = args[1].string;
 
     Value v;
     v.type = VAL_BOOL;
-    v.int_val = (strncmp(prefix, str, strlen(prefix)) == 0);
+    v.int_val = prefix->length <= str->length && memcmp(str->chars, prefix->chars, (size_t) prefix->length) == 0;
     return v;
 }
 
@@ -976,21 +1439,13 @@ Value native_string_endswith(int arg_count, Value *args)
     if (args[0].type != VAL_STRING || args[1].type != VAL_STRING)
         report_error(0, "endswith() requires a string object and a string suffix.");
 
-    char *str = args[0].str_val;
-    char *suffix = args[1].str_val;
-    int str_len = strlen(str);
-    int suffix_len = strlen(suffix);
+    ObjString *str = args[0].string;
+    ObjString *suffix = args[1].string;
 
     Value v;
     v.type = VAL_BOOL;
-    if (suffix_len > str_len)
-    {
-        v.int_val = 0;
-    }
-    else
-    {
-        v.int_val = (strcmp(str + str_len - suffix_len, suffix) == 0);
-    }
+    v.int_val = suffix->length <= str->length &&
+                memcmp(str->chars + str->length - suffix->length, suffix->chars, (size_t) suffix->length) == 0;
     return v;
 }
 
@@ -1007,12 +1462,12 @@ Value native_string_contains(int arg_count, Value *args)
     if (args[0].type != VAL_STRING || args[1].type != VAL_STRING)
         report_error(0, "contains() requires a string object and a string substring.");
 
-    char *haystack = args[0].str_val;
-    char *needle = args[1].str_val;
+    ObjString *haystack = args[0].string;
+    ObjString *needle = args[1].string;
 
     Value v;
     v.type = VAL_BOOL;
-    v.int_val = (strstr(haystack, needle) != NULL);
+    v.int_val = find_bytes(haystack->chars, haystack->length, needle->chars, needle->length, 0) >= 0;
     return v;
 }
 
@@ -1030,43 +1485,41 @@ Value native_list_join(int arg_count, Value *args)
         report_error(0, "join() requires a list object and a string delimiter.");
 
     List *list = args[0].list;
-    char *delim = args[1].str_val;
+    ObjString *delim = args[1].string;
 
-    if (list->count == 0)
-    {
-        Value v;
-        v.type = VAL_STRING;
-        v.str_val = strdup("");
-        return v;
-    }
-
-    size_t total_len = 0;
+    long total_len = 0;
     for (int i = 0; i < list->count; i++)
     {
         if (list->items[i].type != VAL_STRING)
             report_error(0, "join() can only be called on a list of strings.");
-        total_len += strlen(list->items[i].str_val);
+        total_len += list->items[i].string->length;
     }
-    total_len += strlen(delim) * (list->count - 1);
+    if (list->count > 1)
+        total_len += (long) delim->length * (list->count - 1);
+    if (total_len > INT_MAX)
+        report_error(get_exec_error_line(), "join(): result is too large.");
 
-    char *result_str = malloc(total_len + 1);
-    result_str[0] = '\0';
-
+    // The list and delimiter are rooted (they are arguments), so the pieces
+    // stay valid across this allocation.
+    ObjString *result = string_alloc((int) total_len);
+    char *out = result->chars;
     for (int i = 0; i < list->count; i++)
     {
-        strcat(result_str, list->items[i].str_val);
+        ObjString *piece = list->items[i].string;
+        memcpy(out, piece->chars, (size_t) piece->length);
+        out += piece->length;
         if (i < list->count - 1)
         {
-            strcat(result_str, delim);
+            memcpy(out, delim->chars, (size_t) delim->length);
+            out += delim->length;
         }
     }
 
     Value v;
     v.type = VAL_STRING;
-    v.str_val = result_str;
+    v.string = result;
     return v;
 }
-
 Value native_list_pop(int arg_count, Value *args)
 {
 #ifdef DEBUG_TRACE_NATIVE
@@ -1106,7 +1559,7 @@ Value native_list_remove(int arg_count, Value *args)
     List *list = args[0].list;
     if (list->is_fixed)
         report_error(0, "Cannot remove from a fixed-size list.");
-    int index = args[1].int_val;
+    int64_t index = args[1].int_val;
     if (index < 0 || index >= list->count)
         report_error(0, "Index out of bounds for remove().");
 
@@ -1136,22 +1589,18 @@ Value native_list_insert(int arg_count, Value *args)
     List *list = args[0].list;
     if (list->is_fixed)
         report_error(get_exec_error_line(), "Cannot insert into a fixed-size list.");
-    int index = args[1].int_val;
+    int64_t index = args[1].int_val;
     if (index < 0 || index > list->count)
         report_error(get_exec_error_line(), "Index out of bounds for insert().");
-    // Runtime element type enforcement
-    if (list->element_type != VAL_VOID && args[2].type != list->element_type)
-    {
-        report_error(get_exec_error_line(), "Type mismatch: cannot insert value of type '%s' into list<%s>.",
-                     get_value_type_name(args[2].type), get_value_type_name(list->element_type));
-    }
+    Value item = args[2];
+    TYPE_REQUIRE(list->element_spec, &item, get_exec_error_line(), "insert() element");
 
     list_add(list, (Value){VAL_VOID}); // Expand list if necessary
     for (int i = list->count - 1; i > index; i--)
     {
         list->items[i] = list->items[i - 1];
     }
-    list->items[index] = args[2];
+    list->items[index] = item;
     return (Value){VAL_VOID};
 }
 
@@ -1202,6 +1651,180 @@ void define_all_natives_in_env(Env **env_ptr)
     define_native_in_env(env_ptr, "clock", native_clock);
     define_native_in_env(env_ptr, "input", native_input);
     define_native_in_env(env_ptr, "isinstance", native_isinstance);
+    define_native_in_env(env_ptr, "str", native_str);
+    define_native_in_env(env_ptr, "int", native_int);
+    define_native_in_env(env_ptr, "float", native_float);
+}
+
+// string.repeat(count) -> string. The string repeated count times ("ab".repeat(3) == "ababab").
+// Built in one allocation, unlike `+` in a loop, which copies the growing string
+// on every step (quadratic time for long results).
+Value native_string_repeat(int arg_count, Value *args)
+{
+    if (arg_count != 2 || args[0].type != VAL_STRING)
+        report_error(get_exec_error_line(), "repeat() takes exactly one argument (the count).");
+    if (args[1].type != VAL_INT)
+        report_error(get_exec_error_line(), "repeat(): count must be an int, got %s.", type_describe_value(args[1]));
+    int64_t count = args[1].int_val;
+    int64_t piece_length = STRING_LENGTH(args[0]);
+    if (count < 0)
+        report_error(get_exec_error_line(), "repeat(): count must not be negative.");
+    if (piece_length > 0 && count > INT_MAX / piece_length)
+        report_error(get_exec_error_line(), "repeat(): the result would be too large.");
+
+    ObjString *result = string_alloc((int) (piece_length * count));
+    for (int64_t i = 0; i < count; i++)
+        memcpy(result->chars + i * piece_length, AS_CSTRING(args[0]), (size_t) piece_length);
+    Value v;
+    v.type = VAL_STRING;
+    v.string = result;
+    return v;
+}
+
+// --- Map Native Methods ---
+
+static HashMap *map_receiver(int arg_count, Value *args, int expected_args, const char *name, const char *usage)
+{
+    if (arg_count != expected_args + 1)
+        report_error(get_exec_error_line(), "%s() %s.", name, usage);
+    if (args[0].type != VAL_HASHMAP)
+        report_error(get_exec_error_line(), "%s() must be called on a map.", name);
+    for (int i = 1; i <= expected_args; i++)
+    {
+        // Every map method that takes arguments takes a key first.
+        if (i == 1 && args[i].type != VAL_STRING)
+            report_error(get_exec_error_line(), "%s(): the key must be a string, got %s.", name,
+                         type_describe_value(args[i]));
+    }
+    return args[0].hashmap;
+}
+
+// map.len() -> int. Number of keys.
+Value native_map_len(int arg_count, Value *args)
+{
+    HashMap *map = map_receiver(arg_count, args, 0, "len", "takes no arguments");
+    Value v;
+    v.type = VAL_INT;
+    v.int_val = map->count;
+    return v;
+}
+
+// map.has(key) -> bool.
+Value native_map_has(int arg_count, Value *args)
+{
+    HashMap *map = map_receiver(arg_count, args, 1, "has", "takes exactly one argument (the key)");
+    Value v;
+    v.type = VAL_BOOL;
+    v.int_val = hashmap_has(map, AS_CSTRING(args[1]));
+    return v;
+}
+
+// map.get(key, default) -> the value for key, or default if the key is absent.
+Value native_map_get(int arg_count, Value *args)
+{
+    HashMap *map = map_receiver(arg_count, args, 2, "get", "takes two arguments (key, default)");
+    if (hashmap_has(map, AS_CSTRING(args[1])))
+        return hashmap_get(map, AS_CSTRING(args[1]));
+    Value fallback = args[2];
+    TYPE_REQUIRE(map->value_spec, &fallback, get_exec_error_line(), "get() default");
+    return fallback;
+}
+
+// map.remove(key) -> the removed value. Removing a missing key is an error.
+Value native_map_remove(int arg_count, Value *args)
+{
+    HashMap *map = map_receiver(arg_count, args, 1, "remove", "takes exactly one argument (the key)");
+    const char *key = AS_CSTRING(args[1]);
+    if (!hashmap_has(map, key))
+        report_error(get_exec_error_line(), "remove(): key '%s' not found in map.", key);
+    Value removed = hashmap_get(map, key);
+    hashmap_remove(map, key);
+    return removed;
+}
+
+/**
+ * @brief Builds a list of a map's keys (as_keys) or values, in insertion order.
+ */
+static Value map_to_list(HashMap *map, int as_keys)
+{
+    List *list = (List *) allocate_obj(sizeof(List), OBJ_LIST);
+    Value result;
+    result.type = VAL_LIST;
+    result.list = list;
+    list->element_spec = as_keys ? type_from_name("string") : map->value_spec;
+    gc_push_value(result); // Each key string allocated below may trigger a collection.
+    MapEntry **entries = hashmap_entries_in_order(map);
+    for (int i = 0; i < map->count; i++)
+        list_add(list, as_keys ? cstring_value(entries[i]->key) : entries[i]->value);
+    free(entries);
+    gc_pop_root();
+    return result;
+}
+
+// map.keys() -> list<string>, in insertion order.
+Value native_map_keys(int arg_count, Value *args)
+{
+    return map_to_list(map_receiver(arg_count, args, 0, "keys", "takes no arguments"), 1);
+}
+
+// map.values() -> list of the values, in insertion order.
+Value native_map_values(int arg_count, Value *args)
+{
+    return map_to_list(map_receiver(arg_count, args, 0, "values", "takes no arguments"), 0);
+}
+
+// --- Additional String Native Methods ---
+
+// string.find(sub) -> int. Byte index of the first occurrence of sub, or -1.
+Value native_string_find(int arg_count, Value *args)
+{
+    if (arg_count != 2 || args[0].type != VAL_STRING || args[1].type != VAL_STRING)
+        report_error(get_exec_error_line(), "find() takes exactly one string argument (the substring).");
+    Value v;
+    v.type = VAL_INT;
+    v.int_val = find_bytes(AS_CSTRING(args[0]), STRING_LENGTH(args[0]), AS_CSTRING(args[1]),
+                           STRING_LENGTH(args[1]), 0);
+    return v;
+}
+
+// string.replace(old, new) -> string with every occurrence of old replaced by new.
+Value native_string_replace(int arg_count, Value *args)
+{
+    if (arg_count != 3 || args[0].type != VAL_STRING || args[1].type != VAL_STRING || args[2].type != VAL_STRING)
+        report_error(get_exec_error_line(), "replace() takes two string arguments (old, new).");
+    ObjString *str = args[0].string;
+    ObjString *old = args[1].string;
+    ObjString *replacement = args[2].string;
+    if (old->length == 0)
+        report_error(get_exec_error_line(), "replace(): the string to replace must not be empty.");
+
+    // First pass: count matches to size the result exactly.
+    long matches = 0;
+    for (int at = find_bytes(str->chars, str->length, old->chars, old->length, 0); at >= 0;
+         at = find_bytes(str->chars, str->length, old->chars, old->length, at + old->length))
+        matches++;
+    long length = str->length + matches * (long) (replacement->length - old->length);
+    if (length > INT_MAX)
+        report_error(get_exec_error_line(), "replace(): result is too large.");
+
+    ObjString *result = string_alloc((int) length);
+    char *out = result->chars;
+    int from = 0;
+    for (int at = find_bytes(str->chars, str->length, old->chars, old->length, 0); at >= 0;
+         at = find_bytes(str->chars, str->length, old->chars, old->length, from))
+    {
+        memcpy(out, str->chars + from, (size_t) (at - from));
+        out += at - from;
+        memcpy(out, replacement->chars, (size_t) replacement->length);
+        out += replacement->length;
+        from = at + old->length;
+    }
+    memcpy(out, str->chars + from, (size_t) (str->length - from));
+
+    Value v;
+    v.type = VAL_STRING;
+    v.string = result;
+    return v;
 }
 
 void register_native_method(HashMap *method_map, const char *name, NativeFn function)
@@ -1223,6 +1846,18 @@ void register_all_native_methods()
     register_native_method(native_string_methods, "startswith", native_string_startswith);
     register_native_method(native_string_methods, "endswith", native_string_endswith);
     register_native_method(native_string_methods, "contains", native_string_contains);
+    register_native_method(native_string_methods, "count", native_string_count);
+    register_native_method(native_string_methods, "find", native_string_find);
+    register_native_method(native_string_methods, "replace", native_string_replace);
+    register_native_method(native_string_methods, "repeat", native_string_repeat);
+
+    native_map_methods = hashmap_create(VAL_STRING, VAL_NATIVE_FN);
+    register_native_method(native_map_methods, "len", native_map_len);
+    register_native_method(native_map_methods, "has", native_map_has);
+    register_native_method(native_map_methods, "get", native_map_get);
+    register_native_method(native_map_methods, "remove", native_map_remove);
+    register_native_method(native_map_methods, "keys", native_map_keys);
+    register_native_method(native_map_methods, "values", native_map_values);
 
     native_list_methods = hashmap_create(VAL_STRING, VAL_NATIVE_FN);
     register_native_method(native_list_methods, "len", native_len);
@@ -1239,7 +1874,9 @@ void register_all_native_modules()
     native_module_funcs = hashmap_create(VAL_STRING, VAL_HASHMAP);
 
     // Math module
-    HashMap *math_funcs = hashmap_create(VAL_STRING, VAL_NATIVE_FN);
+    // Value type VAL_VOID (unenforced) so the table can hold both native
+    // functions and the PI/E float constants below.
+    HashMap *math_funcs = hashmap_create(VAL_STRING, VAL_VOID);
     register_native_method(math_funcs, "sqrt", native_math_sqrt);
     register_native_method(math_funcs, "sin", native_math_sin);
     register_native_method(math_funcs, "cos", native_math_cos);
@@ -1247,30 +1884,50 @@ void register_all_native_modules()
     register_native_method(math_funcs, "floor", native_math_floor);
     register_native_method(math_funcs, "ceil", native_math_ceil);
     register_native_method(math_funcs, "log", native_math_log);
+    register_native_method(math_funcs, "min", native_math_min);
+    register_native_method(math_funcs, "max", native_math_max);
+    register_native_method(math_funcs, "round", native_math_round);
+    register_native_method(math_funcs, "clamp", native_math_clamp);
+
+    // Constants, exposed as values (accessed as math.PI, not math.PI()).
+    Value pi_val;
+    pi_val.type = VAL_FLOAT;
+    pi_val.float_val = M_PI;
+    hashmap_set(math_funcs, "PI", pi_val, 0);
+
+    Value e_val;
+    e_val.type = VAL_FLOAT;
+    e_val.float_val = M_E;
+    hashmap_set(math_funcs, "E", e_val, 0);
 
     Value math_module_val;
     math_module_val.type = VAL_HASHMAP;
     math_module_val.hashmap = math_funcs;
     hashmap_set(native_module_funcs, "math", math_module_val, 0);
 
-    // IO module
-    HashMap *io_funcs = hashmap_create(VAL_STRING, VAL_NATIVE_FN);
-    register_native_method(io_funcs, "read_file", native_io_read_file);
-    register_native_method(io_funcs, "write_file", native_io_write_file);
+    // Random module
+    HashMap *random_funcs = hashmap_create(VAL_STRING, VAL_NATIVE_FN);
+    register_native_method(random_funcs, "seed", native_random_seed);
+    register_native_method(random_funcs, "int", native_random_int);
+    register_native_method(random_funcs, "float", native_random_float);
+    register_native_method(random_funcs, "choice", native_random_choice);
+    register_native_method(random_funcs, "shuffle", native_random_shuffle);
 
-    Value io_module_val;
-    io_module_val.type = VAL_HASHMAP;
-    io_module_val.hashmap = io_funcs;
-    hashmap_set(native_module_funcs, "io", io_module_val, 0);
+    Value random_module_val;
+    random_module_val.type = VAL_HASHMAP;
+    random_module_val.hashmap = random_funcs;
+    hashmap_set(native_module_funcs, "random", random_module_val, 0);
 
-    // Sys module
-    HashMap *sys_funcs = hashmap_create(VAL_STRING, VAL_NATIVE_FN);
-    register_native_method(sys_funcs, "exit", native_sys_exit);
+    // IO (files, directories, paths) and Sys (process, environment) modules live in lib/.
+    io_register_module(native_module_funcs);
+    sys_register_module(native_module_funcs);
 
-    Value sys_module_val;
-    sys_module_val.type = VAL_HASHMAP;
-    sys_module_val.hashmap = sys_funcs;
-    hashmap_set(native_module_funcs, "sys", sys_module_val, 0);
+    // Regex module (Regex / Match native types).
+    regex_register_module(native_module_funcs);
+
+    // Encoding (base64 / hex) and crypto modules; crypto builds on encoding.
+    encoding_register_module(native_module_funcs);
+    crypto_register_module(native_module_funcs);
 
     // Integer module
     HashMap *integer_funcs = hashmap_create(VAL_STRING, VAL_NATIVE_FN);
@@ -1281,6 +1938,68 @@ void register_all_native_modules()
     integer_module_val.type = VAL_HASHMAP;
     integer_module_val.hashmap = integer_funcs;
     hashmap_set(native_module_funcs, "integer", integer_module_val, 0);
+
+    // Time module. Its registration lives in time_module.c alongside the
+    // platform-specific sleep/clock code.
+    time_register_module(native_module_funcs);
+
+    // HTTP module (basic blocking web server); sockets code lives in http_module.c.
+    http_register_module(native_module_funcs);
+
+    // JSON module (encode/decode).
+    json_register_module(native_module_funcs);
+
+#ifdef PITH_ENABLE_GUI
+    // GUI module (raylib + raygui). Compiled in only when the build enables it;
+    // its registration lives in gui.c to keep this file toolkit-agnostic.
+    gui_register_module(native_module_funcs);
+#endif
+}
+
+// --- Calling Pith values from native code ---
+
+static Value call_function(Func *func, Value receiver, int has_receiver, Value *args, int arg_count, int line);
+
+Value interpreter_call(Value callee, Value *args, int arg_count, int line)
+{
+    switch (callee.type)
+    {
+        case VAL_FUNC:
+            return call_function(callee.func, (Value){VAL_VOID}, 0, args, arg_count, line);
+        case VAL_BOUND_METHOD:
+            if (callee.bound_method->method.type == VAL_FUNC)
+                return call_function(callee.bound_method->method.func, callee.bound_method->receiver, 1, args,
+                                     arg_count, line);
+            break; // Bound native methods are not useful as callbacks.
+        case VAL_NATIVE_FN:
+            set_exec_error_line(line);
+            return callee.native_fn(arg_count, args);
+        default:
+            break;
+    }
+    report_error(line, "Value of type %s is not callable.", type_describe_value(callee));
+    return (Value){VAL_VOID};
+}
+
+int interpreter_call_protected(Value callee, Value *args, int arg_count, Value *result, char *error,
+                               size_t error_size)
+{
+    // Same mechanism as a Pith `try`: errors raised by the callee longjmp back
+    // here instead of ending the program.
+    TryFrame frame;
+    GcRootSnapshot roots = gc_root_snapshot();
+    frame.prev = current_try;
+    current_try = &frame;
+    if (setjmp(frame.jump) != 0)
+    {
+        gc_restore_root_snapshot(roots); // report_error() already popped the frame.
+        printing_count = 0;
+        snprintf(error, error_size, "%s", frame.message);
+        return 1;
+    }
+    *result = interpreter_call(callee, args, arg_count, 0);
+    current_try = frame.prev;
+    return 0;
 }
 
 /**
@@ -1344,6 +2063,30 @@ unsigned long hash_string(const char *str)
     return hash;
 }
 
+/**
+ * @brief Doubles a hashmap's bucket array and relinks every entry.
+ */
+static void hashmap_grow(HashMap *map)
+{
+    int new_count = map->bucket_count * 2;
+    MapEntry **new_buckets = calloc((size_t) new_count, sizeof(MapEntry *));
+    for (int i = 0; i < map->bucket_count; i++)
+    {
+        MapEntry *entry = map->buckets[i];
+        while (entry)
+        {
+            MapEntry *next = entry->next;
+            int index = (int) (hash_string(entry->key) % (unsigned long) new_count);
+            entry->next = new_buckets[index];
+            new_buckets[index] = entry;
+            entry = next;
+        }
+    }
+    free(map->buckets);
+    map->buckets = new_buckets;
+    map->bucket_count = new_count;
+}
+
 HashMap *hashmap_create(ValueType key_type, ValueType value_type)
 {
     // Use GC allocator for HashMap
@@ -1371,7 +2114,7 @@ void hashmap_set(HashMap *map, const char *key, Value value, int line_num)
 #endif
 
     unsigned long hash = hash_string(key);
-    int index = hash % map->bucket_count;
+    int index = (int) (hash % (unsigned long) map->bucket_count);
     MapEntry *entry = map->buckets[index];
     while (entry)
     {
@@ -1382,18 +2125,67 @@ void hashmap_set(HashMap *map, const char *key, Value value, int line_num)
         }
         entry = entry->next;
     }
+
+    // Keep chains short: grow (and rehash) past a load factor of 3/4.
+    if ((map->count + 1) * 4 > map->bucket_count * 3)
+    {
+        hashmap_grow(map);
+        index = (int) (hash % (unsigned long) map->bucket_count);
+    }
+
     MapEntry *new_entry = malloc(sizeof(MapEntry));
     new_entry->key = strdup(key);
     new_entry->value = value;
+    new_entry->order = map->next_order++;
     new_entry->next = map->buckets[index];
     map->buckets[index] = new_entry;
+    map->count++;
+}
+
+int hashmap_remove(HashMap *map, const char *key)
+{
+    unsigned long hash = hash_string(key);
+    MapEntry **link = &map->buckets[hash % (unsigned long) map->bucket_count];
+    while (*link)
+    {
+        MapEntry *entry = *link;
+        if (strcmp(entry->key, key) == 0)
+        {
+            *link = entry->next;
+            free(entry->key);
+            free(entry);
+            map->count--;
+            return 1;
+        }
+        link = &entry->next;
+    }
+    return 0;
+}
+
+static int compare_entry_order(const void *a, const void *b)
+{
+    long order_a = (*(MapEntry *const *) a)->order;
+    long order_b = (*(MapEntry *const *) b)->order;
+    return (order_a > order_b) - (order_a < order_b);
+}
+
+MapEntry **hashmap_entries_in_order(HashMap *map)
+{
+    MapEntry **entries = malloc(sizeof(MapEntry *) * (size_t) (map->count > 0 ? map->count : 1));
+    int n = 0;
+    for (int i = 0; i < map->bucket_count; i++)
+    {
+        for (MapEntry *entry = map->buckets[i]; entry != NULL; entry = entry->next)
+            entries[n++] = entry;
+    }
+    qsort(entries, (size_t) n, sizeof(MapEntry *), compare_entry_order);
+    return entries;
 }
 
 Value hashmap_get(HashMap *map, const char *key)
 {
     unsigned long hash = hash_string(key);
-    int index = hash % map->bucket_count;
-    MapEntry *entry = map->buckets[index];
+    MapEntry *entry = map->buckets[hash % (unsigned long) map->bucket_count];
     while (entry)
     {
         if (strcmp(entry->key, key) == 0)
@@ -1403,17 +2195,371 @@ Value hashmap_get(HashMap *map, const char *key)
     return (Value){VAL_VOID};
 }
 
-ValueType get_type_from_name(const char *type_name)
+int hashmap_has(HashMap *map, const char *key)
 {
-    if (strcmp(type_name, "int") == 0)
-        return VAL_INT;
-    if (strcmp(type_name, "string") == 0)
-        return VAL_STRING;
-    if (strcmp(type_name, "float") == 0)
-        return VAL_FLOAT;
-    if (strcmp(type_name, "bool") == 0)
-        return VAL_BOOL;
-    return VAL_VOID; // Default/unknown
+    unsigned long hash = hash_string(key);
+    for (MapEntry *entry = map->buckets[hash % map->bucket_count]; entry; entry = entry->next)
+    {
+        if (strcmp(entry->key, key) == 0)
+            return 1;
+    }
+    return 0;
+}
+
+// --- Operators ---
+//
+// Integer arithmetic is 64-bit and checked: a result that does not fit raises
+// "Integer overflow" instead of silently wrapping (signed overflow is undefined
+// behaviour in C, and a wrapped size or counter is a classic server bug).
+
+static void integer_overflow(int line, const char *op)
+{
+    report_error(line, "Integer overflow in '%s' (result does not fit in a 64-bit int).", op);
+}
+
+static int64_t checked_add(int64_t a, int64_t b, int line)
+{
+    if ((b > 0 && a > INT64_MAX - b) || (b < 0 && a < INT64_MIN - b))
+        integer_overflow(line, "+");
+    return a + b;
+}
+
+static int64_t checked_sub(int64_t a, int64_t b, int line)
+{
+    if ((b < 0 && a > INT64_MAX + b) || (b > 0 && a < INT64_MIN + b))
+        integer_overflow(line, "-");
+    return a - b;
+}
+
+static int64_t checked_mul(int64_t a, int64_t b, int line, const char *op)
+{
+    // Portable overflow test (CERT INT32-C), no compiler builtins needed.
+    if (a > 0)
+    {
+        if ((b > 0 && a > INT64_MAX / b) || (b <= 0 && b < INT64_MIN / a))
+            integer_overflow(line, op);
+    }
+    else if (a < 0)
+    {
+        if ((b > 0 && a < INT64_MIN / b) || (b < 0 && b < INT64_MAX / a))
+            integer_overflow(line, op);
+    }
+    return a * b;
+}
+
+/**
+ * @brief Integer power by repeated squaring (exact, unlike pow() through a double).
+ */
+static int64_t checked_pow(int64_t base, int64_t exponent, int line)
+{
+    if (exponent < 0)
+        report_error(line, "Negative exponent with an int base; use a float base (e.g. 2.0 ^ -1).");
+    int64_t result = 1;
+    while (exponent > 0)
+    {
+        if (exponent & 1)
+            result = checked_mul(result, base, line, "^");
+        exponent >>= 1;
+        if (exponent > 0)
+            base = checked_mul(base, base, line, "^");
+    }
+    return result;
+}
+
+/**
+ * @brief Applies a binary operator (other than and/or) under Pith's typing rules.
+ *
+ *  - Arithmetic (+ - * / % ^) and ordering (< <= > >=) on numbers: int with
+ *    int stays int; any float operand makes the result float (int widens).
+ *  - Strings: + concatenates; ordering compares bytes lexicographically.
+ *  - == / != : numbers compare by value, strings by content, bools by value,
+ *    lists/maps/instances/functions by identity. Anything compared with void is
+ *    equal only to void. Other mixed types are an error, never silently false.
+ *  - Everything else is a type error: there are no implicit conversions.
+ */
+static Value eval_binary(ASTNode *node, Value left, Value right)
+{
+    Value res = {VAL_VOID};
+    int left_num = left.type == VAL_INT || left.type == VAL_FLOAT;
+    int right_num = right.type == VAL_INT || right.type == VAL_FLOAT;
+
+    if (node->op == OP_EQ || node->op == OP_NE)
+    {
+        int equal;
+        if (left_num && right_num)
+        {
+            if (left.type == VAL_INT && right.type == VAL_INT)
+                equal = left.int_val == right.int_val;
+            else
+                equal = (left.type == VAL_INT ? (double) left.int_val : left.float_val) ==
+                        (right.type == VAL_INT ? (double) right.int_val : right.float_val);
+        }
+        else if (left.type == VAL_VOID || right.type == VAL_VOID)
+            equal = left.type == right.type;
+        else if (left.type != right.type)
+        {
+            report_error(node->line_num, "Cannot compare %s with %s using '%s'.", type_describe_value(left),
+                         type_describe_value(right), node->value);
+            equal = 0;
+        }
+        else if (left.type == VAL_STRING)
+            equal = string_equals(left.string, right.string);
+        else if (left.type == VAL_BOOL)
+            equal = left.int_val == right.int_val;
+        else if (left.type == VAL_NATIVE_FN)
+            equal = left.native_fn == right.native_fn;
+        else
+            equal = value_object(left) == value_object(right); // Identity for heap values.
+        res.type = VAL_BOOL;
+        res.int_val = node->op == OP_EQ ? equal : !equal;
+        return res;
+    }
+
+    if (left.type == VAL_INT && right.type == VAL_INT)
+    {
+        switch (node->op)
+        {
+            case OP_ADD:
+                res.type = VAL_INT;
+                res.int_val = checked_add(left.int_val, right.int_val, node->line_num);
+                return res;
+            case OP_SUB:
+                res.type = VAL_INT;
+                res.int_val = checked_sub(left.int_val, right.int_val, node->line_num);
+                return res;
+            case OP_MUL:
+                res.type = VAL_INT;
+                res.int_val = checked_mul(left.int_val, right.int_val, node->line_num, "*");
+                return res;
+            case OP_DIV:
+            case OP_MOD:
+                // In C both of these trap (SIGFPE) and kill the interpreter.
+                if (right.int_val == 0)
+                    report_error(node->line_num, node->op == OP_DIV ? "Division by zero." : "Modulo by zero.");
+                res.type = VAL_INT;
+                if (left.int_val == INT64_MIN && right.int_val == -1)
+                {
+                    // The one int division whose result does not fit (C traps on it).
+                    if (node->op == OP_DIV)
+                        integer_overflow(node->line_num, "/");
+                    res.int_val = 0;
+                }
+                else
+                    res.int_val = node->op == OP_DIV ? left.int_val / right.int_val : left.int_val % right.int_val;
+                return res;
+            case OP_POW:
+                res.type = VAL_INT;
+                res.int_val = checked_pow(left.int_val, right.int_val, node->line_num);
+                return res;
+            case OP_LT: res.type = VAL_BOOL; res.int_val = left.int_val < right.int_val; return res;
+            case OP_GT: res.type = VAL_BOOL; res.int_val = left.int_val > right.int_val; return res;
+            case OP_LE: res.type = VAL_BOOL; res.int_val = left.int_val <= right.int_val; return res;
+            case OP_GE: res.type = VAL_BOOL; res.int_val = left.int_val >= right.int_val; return res;
+            default: break;
+        }
+    }
+    else if (left_num && right_num)
+    {
+        // int operands widen to float.
+        double left_d = (left.type == VAL_INT) ? left.int_val : left.float_val;
+        double right_d = (right.type == VAL_INT) ? right.int_val : right.float_val;
+        switch (node->op)
+        {
+            case OP_ADD: res.type = VAL_FLOAT; res.float_val = left_d + right_d; return res;
+            case OP_SUB: res.type = VAL_FLOAT; res.float_val = left_d - right_d; return res;
+            case OP_MUL: res.type = VAL_FLOAT; res.float_val = left_d * right_d; return res;
+            case OP_DIV: res.type = VAL_FLOAT; res.float_val = left_d / right_d; return res;
+            case OP_MOD: res.type = VAL_FLOAT; res.float_val = fmod(left_d, right_d); return res;
+            case OP_POW: res.type = VAL_FLOAT; res.float_val = pow(left_d, right_d); return res;
+            case OP_LT: res.type = VAL_BOOL; res.int_val = left_d < right_d; return res;
+            case OP_GT: res.type = VAL_BOOL; res.int_val = left_d > right_d; return res;
+            case OP_LE: res.type = VAL_BOOL; res.int_val = left_d <= right_d; return res;
+            case OP_GE: res.type = VAL_BOOL; res.int_val = left_d >= right_d; return res;
+            default: break;
+        }
+    }
+    else if (left.type == VAL_STRING && right.type == VAL_STRING)
+    {
+        if (node->op == OP_ADD)
+        {
+            res.type = VAL_STRING;
+            res.string = string_concat(left.string, right.string);
+            return res;
+        }
+        if (node->op == OP_LT || node->op == OP_GT || node->op == OP_LE || node->op == OP_GE)
+        {
+            ObjString *a = left.string;
+            ObjString *b = right.string;
+            int common = a->length < b->length ? a->length : b->length;
+            int cmp = memcmp(a->chars, b->chars, (size_t) common);
+            if (cmp == 0)
+                cmp = (a->length > b->length) - (a->length < b->length);
+            res.type = VAL_BOOL;
+            res.int_val = node->op == OP_LT ? cmp < 0 : node->op == OP_GT ? cmp > 0 : node->op == OP_LE ? cmp <= 0
+                                                                                                         : cmp >= 0;
+            return res;
+        }
+    }
+
+    report_error(node->line_num, "Operator '%s' cannot be applied to %s and %s.", node->value,
+                 type_describe_value(left), type_describe_value(right));
+    return res;
+}
+
+// --- Calls (argument binding and declared-type checks) ---
+
+/**
+ * @brief Fills a new frame's parameter slots from call arguments, enforcing the
+ *        function's arity and declared parameter types.
+ *
+ * @param func The function being called.
+ * @param frame Its new activation frame.
+ * @param first_slot Slot of the first parameter (1 for methods: slot 0 is `this`).
+ * @param args The evaluated arguments (excluding any receiver).
+ * @param arg_count Number of arguments.
+ * @param line Call-site line for errors.
+ */
+static void bind_call_args(Func *func, Env *frame, int first_slot, Value *args, int arg_count, int line)
+{
+    ASTNode *def = func->body;
+    if (arg_count != def->arg_count)
+        report_error(line, "'%s' expects %d argument%s, got %d.", func->name, def->arg_count,
+                     def->arg_count == 1 ? "" : "s", arg_count);
+    for (int i = 0; i < arg_count; i++)
+    {
+        Value arg = args[i];
+        if (def->arg_types && def->arg_types[i])
+        {
+            TYPE_REQUIRE(def->arg_types[i], &arg, line, "argument %d ('%s') of '%s'", i + 1, def->args[i],
+                         func->name);
+        }
+        frame->slots[first_slot + i] = value_copy(arg);
+    }
+}
+
+/**
+ * @brief Checks a function's result against its declared return type.
+ *
+ * @return The (possibly int->float widened) result.
+ */
+static Value check_return(Func *func, Value result, int line)
+{
+    if (result.type == VAL_BREAK || result.type == VAL_CONTINUE)
+        result = (Value){VAL_VOID}; // A stray loop signal does not leave the function as a value.
+    TypeSpec *declared = func->body->type_spec;
+    if (declared == NULL)
+        return result;
+    if (declared->kind == TYPE_VOID)
+    {
+        if (result.type != VAL_VOID)
+            report_error(line, "'%s' is declared void but returned %s.", func->name, type_describe_value(result));
+        return result;
+    }
+    if (result.type == VAL_VOID && declared->kind != TYPE_CLASS)
+        report_error(line, "'%s' must return %s, but returned nothing.", func->name, declared->name);
+    TYPE_REQUIRE(declared, &result, line, "return value of '%s'", func->name);
+    return result;
+}
+
+/**
+ * @brief Calls a user-defined function or method with already-evaluated arguments.
+ *
+ * @param func The function.
+ * @param receiver The `this` value for methods (ignored when @p has_receiver is 0).
+ * @param has_receiver Non-zero for methods: slot 0 receives @p receiver.
+ * @param args Arguments (GC-rooted by the caller).
+ * @param arg_count Number of arguments.
+ * @param line Call-site line for errors.
+ * @return The checked return value.
+ */
+static Value call_function(Func *func, Value receiver, int has_receiver, Value *args, int arg_count, int line)
+{
+    Env *frame = make_frame(func->body->frame_slots, func->body->slot_types, func->env);
+    gc_push_env_root(&frame);
+    if (has_receiver)
+        frame->slots[0] = value_copy(receiver);
+    bind_call_args(func, frame, has_receiver ? 1 : 0, args, arg_count, line);
+    Value result = exec_block(func->body->children[0], &frame);
+    gc_pop_env_root();
+    return check_return(func, result, line);
+}
+
+/**
+ * @brief Creates an instance of @p pclass and runs its init method.
+ *
+ * Fields start at the zero value of their declared types (void for class-typed
+ * fields).
+ *
+ * @param pclass The class.
+ * @param call_node The call (children[0] = class expression, then arguments).
+ * @param env Environment to evaluate the arguments in.
+ * @return The new instance.
+ */
+static Value construct_instance(PithClass *pclass, ASTNode *call_node, Env *env)
+{
+    int root_depth = gc_temp_root_depth();
+    PithInstance *instance = (PithInstance *) allocate_obj(sizeof(PithInstance), OBJ_INSTANCE);
+    gc_push_root((ObjHeader *) instance);
+    instance->pith_class = pclass;
+    instance->fields = hashmap_create(VAL_STRING, VAL_VOID);
+    for (int i = 0; i < pclass->field_count; i++)
+    {
+        Value zero = type_zero_value(pclass->field_types ? pclass->field_types[i] : NULL);
+        hashmap_set(instance->fields, pclass->fields[i], zero, call_node->line_num);
+    }
+
+    Value instance_val;
+    instance_val.type = VAL_INSTANCE;
+    instance_val.instance = instance;
+
+    int arg_count = call_node->children_count - 1;
+    Value init_method_val = hashmap_get(pclass->methods, "init");
+    if (init_method_val.type == VAL_FUNC)
+    {
+        Value stack_args[8];
+        Value *args = arg_count <= 8 ? stack_args : malloc(sizeof(Value) * (size_t) arg_count);
+        for (int i = 0; i < arg_count; i++)
+        {
+            args[i] = eval(call_node->children[i + 1], env);
+            gc_push_value_if_heap(args[i]); // Rooted until the call completes.
+        }
+        call_function(init_method_val.func, instance_val, 1, args, arg_count, call_node->line_num);
+        if (args != stack_args)
+            free(args);
+    }
+    else if (arg_count > 0)
+    {
+        report_error(call_node->line_num, "Class '%s' has no init method but was given %d argument%s.",
+                     pclass->name, arg_count, arg_count == 1 ? "" : "s");
+    }
+
+    gc_pop_roots_to(root_depth);
+    return instance_val;
+}
+
+/**
+ * @brief Index of a declared field in @p cls, or -1.
+ */
+static int class_field_index(PithClass *cls, const char *name)
+{
+    for (int i = 0; i < cls->field_count; i++)
+    {
+        if (strcmp(cls->fields[i], name) == 0)
+            return i;
+    }
+    return -1;
+}
+
+/**
+ * @brief Evaluates a condition (if/while/for/do-while), which must be a bool.
+ */
+static int eval_condition(ASTNode *expr, Env *env, const char *statement)
+{
+    Value cond = eval(expr, env);
+    if (cond.type != VAL_BOOL)
+        report_error(expr->line_num, "The condition of '%s' must be a bool, got %s.", statement,
+                     type_describe_value(cond));
+    return cond.int_val;
 }
 
 /**
@@ -1429,6 +2575,9 @@ Value eval(ASTNode *node, Env *env)
 {
     if (!node)
         return (Value){VAL_VOID};
+    // Every recursive path (Pith calls, nested expressions) passes through
+    // here, so this one check turns a C stack overflow into a Pith error.
+    check_stack_space(node->line_num);
 
 #ifdef DEBUG_TRACE_EXECUTION
     printf("[EXEC] Evaluating expression node type %d\n", node->type);
@@ -1445,29 +2594,32 @@ Value eval(ASTNode *node, Env *env)
         {
             // Value parsed once at parse time (see create_node), not re-parsed here.
             result.type = VAL_INT;
-            result.int_val = (int) node->int_value;
+            result.int_val = (int64_t) node->int_value;
             break;
         }
         case AST_FLOAT_LITERAL:
         {
             // Value parsed once at parse time (see create_node), not re-parsed here.
             result.type = VAL_FLOAT;
-            result.float_val = (float) node->float_value;
+            result.float_val = node->float_value;
             break;
         }
         case AST_STRING_LITERAL:
         {
-            result.type = VAL_STRING;
-            result.str_val = strdup(node->value);
+            // int_value holds the byte length (the literal may contain "\0").
+            result = string_value(node->value, (int) node->int_value);
             break;
         }
         case AST_BOOL_LITERAL:
         {
             // Value parsed once at parse time (see create_node), not re-parsed here.
             result.type = VAL_BOOL;
-            result.int_val = (int) node->int_value;
+            result.int_val = (int64_t) node->int_value;
             break;
         }
+        case AST_VOID_LITERAL:
+            result = (Value){VAL_VOID};
+            break;
         case AST_LIST_LITERAL:
         {
             // Use GC allocator for List
@@ -1499,10 +2651,12 @@ Value eval(ASTNode *node, Env *env)
             for (int i = 0; i < node->children_count; i += 2)
             {
                 Value key = eval(node->children[i], env);
+                gc_push_value(key); // Evaluating the value may allocate.
                 Value val = eval(node->children[i + 1], env);
+                gc_pop_root();
                 if (key.type != VAL_STRING)
                     report_error(node->children[i]->line_num, "Hashmap keys must be strings.");
-                hashmap_set(map, key.str_val, val, node->line_num);
+                hashmap_set(map, AS_CSTRING(key), val, node->line_num);
             }
 
             gc_pop_root();
@@ -1528,6 +2682,8 @@ Value eval(ASTNode *node, Env *env)
             {
                 if (operand.type == VAL_INT)
                 {
+                    if (operand.int_val == INT64_MIN)
+                        integer_overflow(node->line_num, "-");
                     result.type = VAL_INT;
                     result.int_val = -operand.int_val;
                 }
@@ -1563,51 +2719,7 @@ Value eval(ASTNode *node, Env *env)
             {
                 report_error(node->line_num, "Cannot instantiate non-class type.");
             }
-
-            // Use GC allocator for PithInstance
-            PithInstance *instance = (PithInstance *) allocate_obj(sizeof(PithInstance), OBJ_INSTANCE);
-
-            // Protect instance while initializing fields and evaluating args
-            gc_push_root((ObjHeader *) instance);
-
-            instance->pith_class = class_val.pith_class;
-            instance->fields = hashmap_create(VAL_STRING, VAL_VOID);
-
-            for (int i = 0; i < instance->pith_class->field_count; i++)
-            {
-                hashmap_set(instance->fields, instance->pith_class->fields[i], (Value){VAL_VOID}, node->line_num);
-            }
-
-            Value instance_val;
-            instance_val.type = VAL_INSTANCE;
-            instance_val.instance = instance;
-
-            Value init_method_val = hashmap_get(instance->pith_class->methods, "init");
-            if (init_method_val.type != VAL_VOID)
-            {
-                Func *init_method = init_method_val.func;
-                int arg_count = call_node->children_count - 1;
-                Value *args = malloc(arg_count * sizeof(Value));
-                for (int i = 0; i < arg_count; i++)
-                {
-                    args[i] = eval(call_node->children[i + 1], env);
-                }
-
-                // Build the method's activation frame: slot 0 = `this`, then params.
-                Env *exec_env = make_frame(init_method->body->frame_slots, init_method->env);
-                gc_push_env_root(&exec_env);
-                exec_env->slots[0] = value_copy(instance_val);
-                for (int i = 0; i < arg_count; i++)
-                    exec_env->slots[i + 1] = value_copy(args[i]);
-
-                exec_block(init_method->body->children[0], &exec_env);
-                gc_pop_env_root();
-                free(args);
-            }
-
-            gc_pop_root();
-
-            result = instance_val;
+            result = construct_instance(class_val.pith_class, call_node, env);
             break;
         }
         case AST_FIELD_ACCESS:
@@ -1615,15 +2727,17 @@ Value eval(ASTNode *node, Env *env)
             Value object = eval(node->children[0], env);
             if (object.type == VAL_INSTANCE)
             {
-                Value field = hashmap_get(object.instance->fields, node->value);
-                if (field.type != VAL_VOID)
-                    return field;
+                // A class-typed field may legitimately hold void, so test membership.
+                if (hashmap_has(object.instance->fields, node->value))
+                    return hashmap_get(object.instance->fields, node->value);
 
                 Value method_val = hashmap_get(object.instance->pith_class->methods, node->value);
                 if (method_val.type != VAL_VOID)
                 {
-                    // Use GC allocator for BoundMethod
+                    // The receiver may be a temporary (e.g. "a,b".split): keep it alive.
+                    gc_push_value(object);
                     BoundMethod *bound = (BoundMethod *) allocate_obj(sizeof(BoundMethod), OBJ_BOUND_METHOD);
+                    gc_pop_root();
                     bound->receiver = object;
                     bound->method = method_val;
                     result.type = VAL_BOUND_METHOD;
@@ -1648,6 +2762,9 @@ Value eval(ASTNode *node, Env *env)
 #ifdef DEBUG_DEEP_DIVE_INTERP
                 printf("[DDI_MODULE_ACCESS] Accessing member '%s' of module '%s'\n", node->value, object.module->name);
 #endif
+                if (!hashmap_has(object.module->members, node->value))
+                    report_error(node->line_num, "Module '%s' has no member '%s'.", object.module->name,
+                                 node->value);
                 return hashmap_get(object.module->members, node->value);
             }
             else if (object.type == VAL_STRING)
@@ -1655,8 +2772,10 @@ Value eval(ASTNode *node, Env *env)
                 Value method_val = hashmap_get(native_string_methods, node->value);
                 if (method_val.type != VAL_VOID)
                 {
-                    // Use GC allocator for BoundMethod
+                    // The receiver may be a temporary (e.g. "a,b".split): keep it alive.
+                    gc_push_value(object);
                     BoundMethod *bound = (BoundMethod *) allocate_obj(sizeof(BoundMethod), OBJ_BOUND_METHOD);
+                    gc_pop_root();
                     bound->receiver = object;
                     bound->method = method_val;
                     result.type = VAL_BOUND_METHOD;
@@ -1664,13 +2783,31 @@ Value eval(ASTNode *node, Env *env)
                     return result;
                 }
             }
-            else if (object.type == VAL_LIST)
+            else if (object.type == VAL_NATIVE_OBJECT)
             {
-                Value method_val = hashmap_get(native_list_methods, node->value);
+                Value method_val = hashmap_get(object.native->cls->methods.hashmap, node->value);
                 if (method_val.type != VAL_VOID)
                 {
-                    // Use GC allocator for BoundMethod
+                    gc_push_value(object); // The receiver may be a temporary.
                     BoundMethod *bound = (BoundMethod *) allocate_obj(sizeof(BoundMethod), OBJ_BOUND_METHOD);
+                    gc_pop_root();
+                    bound->receiver = object;
+                    bound->method = method_val;
+                    result.type = VAL_BOUND_METHOD;
+                    result.bound_method = bound;
+                    return result;
+                }
+            }
+            else if (object.type == VAL_LIST || object.type == VAL_HASHMAP)
+            {
+                Value method_val = hashmap_get(object.type == VAL_LIST ? native_list_methods : native_map_methods,
+                                               node->value);
+                if (method_val.type != VAL_VOID)
+                {
+                    // The receiver may be a temporary (e.g. "a,b".split): keep it alive.
+                    gc_push_value(object);
+                    BoundMethod *bound = (BoundMethod *) allocate_obj(sizeof(BoundMethod), OBJ_BOUND_METHOD);
+                    gc_pop_root();
                     bound->receiver = object;
                     bound->method = method_val;
                     result.type = VAL_BOUND_METHOD;
@@ -1679,18 +2816,35 @@ Value eval(ASTNode *node, Env *env)
                 }
             }
             report_error(node->line_num, "Value of type '%s' has no field or method named '%s'.",
-                         get_value_type_name(object.type), node->value);
+                         type_describe_value(object), node->value);
             break;
         }
         case AST_INDEX_ACCESS:
         {
             Value collection = eval(node->children[0], env);
+            gc_push_value(collection); // Evaluating the index may allocate.
             Value index_val = eval(node->children[1], env);
+            gc_pop_root();
+            if (collection.type == VAL_STRING)
+            {
+                // s[i] -> one-byte string. Negative indexes count from the end.
+                if (index_val.type != VAL_INT)
+                    report_error(node->line_num, "String index must be an integer.");
+                int length = STRING_LENGTH(collection);
+                int64_t index = index_val.int_val < 0 ? index_val.int_val + length : index_val.int_val;
+                if (index < 0 || index >= length)
+                    report_error(node->line_num, "String index %" PITH_INT_FMT " out of range (length %d).",
+                                 index_val.int_val, length);
+                gc_push_value(collection);
+                result = string_value(AS_CSTRING(collection) + index, 1);
+                gc_pop_root();
+                break;
+            }
             if (collection.type == VAL_LIST)
             {
                 if (index_val.type != VAL_INT)
                     report_error(node->line_num, "List index must be an integer.");
-                int index = index_val.int_val;
+                int64_t index = index_val.int_val;
                 if (index < 0 || index >= collection.list->count)
                     report_error(node->line_num, "Index out of bounds.");
                 result = collection.list->items[index];
@@ -1700,235 +2854,162 @@ Value eval(ASTNode *node, Env *env)
             {
                 if (index_val.type != VAL_STRING)
                     report_error(node->line_num, "Hashmap index must be a string.");
-                result = hashmap_get(collection.hashmap, index_val.str_val);
+                if (!hashmap_has(collection.hashmap, AS_CSTRING(index_val)))
+                    report_error(node->line_num, "Key '%s' not found in map.", AS_CSTRING(index_val));
+                result = hashmap_get(collection.hashmap, AS_CSTRING(index_val));
                 break;
             }
             report_error(node->line_num, "Not an indexable type.");
             break;
         }
+        case AST_SLICE:
+        {
+            // s[start:end] -> bytes start..end-1. Either bound may be omitted;
+            // negative bounds count from the end; out-of-range bounds are clamped.
+            int root_depth = gc_temp_root_depth();
+            Value collection = eval(node->children[0], env);
+            gc_push_value(collection); // Rooted while the bounds evaluate and the slice is built.
+            if (collection.type != VAL_STRING)
+                report_error(node->line_num, "Only strings can be sliced (got '%s').",
+                             get_value_type_name(collection.type));
+
+            int64_t length = STRING_LENGTH(collection);
+            int64_t start = 0;
+            int64_t end = length;
+            int child = 1;
+            if (node->int_value & SLICE_HAS_START)
+            {
+                Value v = eval(node->children[child++], env);
+                if (v.type != VAL_INT)
+                    report_error(node->line_num, "Slice bounds must be integers.");
+                start = v.int_val;
+            }
+            if (node->int_value & SLICE_HAS_END)
+            {
+                Value v = eval(node->children[child++], env);
+                if (v.type != VAL_INT)
+                    report_error(node->line_num, "Slice bounds must be integers.");
+                end = v.int_val;
+            }
+            if (start < 0)
+                start += length;
+            if (end < 0)
+                end += length;
+            start = start < 0 ? 0 : (start > length ? length : start);
+            end = end < start ? start : (end > length ? length : end);
+
+            result = string_value(AS_CSTRING(collection) + start, (int) (end - start));
+            gc_pop_roots_to(root_depth);
+            break;
+        }
         case AST_BINARY_OP:
         {
+            // `and` / `or` short-circuit: the right side is only evaluated when
+            // the left side does not already decide the result.
+            if (node->op == OP_AND || node->op == OP_OR)
+            {
+                Value left = eval(node->children[0], env);
+                if (left.type != VAL_BOOL)
+                    report_error(node->line_num, "Left operand of '%s' must be a bool, got %s.", node->value,
+                                 type_describe_value(left));
+                result.type = VAL_BOOL;
+                if ((node->op == OP_AND && !left.int_val) || (node->op == OP_OR && left.int_val))
+                {
+                    result.int_val = left.int_val;
+                    break;
+                }
+                Value right = eval(node->children[1], env);
+                if (right.type != VAL_BOOL)
+                    report_error(node->line_num, "Right operand of '%s' must be a bool, got %s.", node->value,
+                                 type_describe_value(right));
+                result.int_val = right.int_val;
+                break;
+            }
+
+            // Root both operands: evaluating the right side, and building a
+            // concatenated string, may allocate.
+            int root_depth = gc_temp_root_depth();
             Value left = eval(node->children[0], env);
+            gc_push_value_if_heap(left);
             Value right = eval(node->children[1], env);
+            gc_push_value_if_heap(right);
 
 #ifdef DEBUG_DEEP_DIVE_INTERP
             printf("[DDI_BINOP] %s %s %s\n", get_value_type_name(left.type), node->value,
                    get_value_type_name(right.type));
 #endif
-
-            Value res = {VAL_VOID};
-
-            // Operator resolved to an OpCode at parse time (see create_node), so we
-            // switch() on it instead of running a chain of strcmp() per evaluation.
-            if (left.type == VAL_INT && right.type == VAL_INT)
-            {
-                switch (node->op)
-                {
-                    case OP_ADD: res.type = VAL_INT; res.int_val = left.int_val + right.int_val; break;
-                    case OP_SUB: res.type = VAL_INT; res.int_val = left.int_val - right.int_val; break;
-                    case OP_MUL: res.type = VAL_INT; res.int_val = left.int_val * right.int_val; break;
-                    case OP_DIV: res.type = VAL_INT; res.int_val = left.int_val / right.int_val; break;
-                    case OP_MOD: res.type = VAL_INT; res.int_val = left.int_val % right.int_val; break;
-                    case OP_POW: res.type = VAL_INT; res.int_val = (int) pow(left.int_val, right.int_val); break;
-                    case OP_LT: res.type = VAL_BOOL; res.int_val = left.int_val < right.int_val; break;
-                    case OP_GT: res.type = VAL_BOOL; res.int_val = left.int_val > right.int_val; break;
-                    case OP_LE: res.type = VAL_BOOL; res.int_val = left.int_val <= right.int_val; break;
-                    case OP_GE: res.type = VAL_BOOL; res.int_val = left.int_val >= right.int_val; break;
-                    case OP_EQ: res.type = VAL_BOOL; res.int_val = left.int_val == right.int_val; break;
-                    case OP_NE: res.type = VAL_BOOL; res.int_val = left.int_val != right.int_val; break;
-                    default: break;
-                }
-            }
-            else if ((left.type == VAL_FLOAT || left.type == VAL_INT) && (
-                         right.type == VAL_FLOAT || right.type == VAL_INT))
-            {
-                double left_d = (left.type == VAL_INT) ? left.int_val : left.float_val;
-                double right_d = (right.type == VAL_INT) ? right.int_val : right.float_val;
-                switch (node->op)
-                {
-                    case OP_ADD: res.type = VAL_FLOAT; res.float_val = left_d + right_d; break;
-                    case OP_SUB: res.type = VAL_FLOAT; res.float_val = left_d - right_d; break;
-                    case OP_MUL: res.type = VAL_FLOAT; res.float_val = left_d * right_d; break;
-                    case OP_DIV: res.type = VAL_FLOAT; res.float_val = left_d / right_d; break;
-                    case OP_POW: res.type = VAL_FLOAT; res.float_val = pow(left_d, right_d); break;
-                    case OP_LT: res.type = VAL_BOOL; res.int_val = left_d < right_d; break;
-                    case OP_GT: res.type = VAL_BOOL; res.int_val = left_d > right_d; break;
-                    case OP_LE: res.type = VAL_BOOL; res.int_val = left_d <= right_d; break;
-                    case OP_GE: res.type = VAL_BOOL; res.int_val = left_d >= right_d; break;
-                    case OP_EQ: res.type = VAL_BOOL; res.int_val = left_d == right_d; break;
-                    case OP_NE: res.type = VAL_BOOL; res.int_val = left_d != right_d; break;
-                    default: break;
-                }
-            }
-            else if (left.type == VAL_STRING && right.type == VAL_STRING)
-            {
-                switch (node->op)
-                {
-                    case OP_ADD:
-                    {
-                        char *new_str = malloc(strlen(left.str_val) + strlen(right.str_val) + 1);
-                        strcpy(new_str, left.str_val);
-                        strcat(new_str, right.str_val);
-                        res.type = VAL_STRING;
-                        res.str_val = new_str;
-                        break;
-                    }
-                    case OP_EQ: res.type = VAL_BOOL; res.int_val = strcmp(left.str_val, right.str_val) == 0; break;
-                    case OP_NE: res.type = VAL_BOOL; res.int_val = strcmp(left.str_val, right.str_val) != 0; break;
-                    default: break;
-                }
-            }
-            else if (left.type == VAL_BOOL && right.type == VAL_BOOL)
-            {
-                switch (node->op)
-                {
-                    case OP_AND: res.type = VAL_BOOL; res.int_val = left.int_val && right.int_val; break;
-                    case OP_OR: res.type = VAL_BOOL; res.int_val = left.int_val || right.int_val; break;
-                    default: break;
-                }
-            }
-
-            result = res;
+            result = eval_binary(node, left, right);
+            gc_pop_roots_to(root_depth);
             break;
         }
         case AST_FUNC_CALL:
         {
+            // The callee and every argument stay rooted until the call returns:
+            // later arguments, frame creation and the callee itself may allocate.
+            int root_depth = gc_temp_root_depth();
             Value callee = eval(node->children[0], env);
+            gc_push_value_if_heap(callee);
 
-            // If the callee is a class value, treat `MyClass(...)` as construction (shortcut for `new MyClass(...)`).
+            // `MyClass(...)` is shorthand for `new MyClass(...)`.
             if (callee.type == VAL_CLASS)
             {
-                PithClass *pclass = callee.pith_class;
-                // Use GC allocator for PithInstance
-                PithInstance *instance = (PithInstance *) allocate_obj(sizeof(PithInstance), OBJ_INSTANCE);
-                gc_push_root((ObjHeader *) instance);
-                instance->pith_class = pclass;
-                instance->fields = hashmap_create(VAL_STRING, VAL_VOID);
-                for (int i = 0; i < pclass->field_count; i++)
-                {
-                    hashmap_set(instance->fields, pclass->fields[i], (Value){VAL_VOID}, node->line_num);
-                }
-
-                Value instance_val;
-                instance_val.type = VAL_INSTANCE;
-                instance_val.instance = instance;
-
-                // Call init if present
-                Value init_method_val = hashmap_get(pclass->methods, "init");
-                if (init_method_val.type != VAL_VOID)
-                {
-                    Func *init_method = init_method_val.func;
-                    int arg_count = node->children_count - 1;
-                    Value *args = malloc(arg_count * sizeof(Value));
-                    for (int i = 0; i < arg_count; i++)
-                        args[i] = eval(node->children[i + 1], env);
-
-                    // Build the method's activation frame: slot 0 = `this`, then params.
-                    Env *exec_env = make_frame(init_method->body->frame_slots, init_method->env);
-                    gc_push_env_root(&exec_env);
-                    exec_env->slots[0] = value_copy(instance_val);
-                    for (int i = 0; i < arg_count; i++)
-                        exec_env->slots[i + 1] = value_copy(args[i]);
-
-                    exec_block(init_method->body->children[0], &exec_env);
-                    gc_pop_env_root();
-                    free(args);
-                }
-
-                gc_pop_root();
-                result = instance_val;
+                result = construct_instance(callee.pith_class, node, env);
+                gc_pop_roots_to(root_depth);
                 break;
             }
 
-            if (callee.type == VAL_FUNC && callee.func->owner_class != NULL)
+            // Arguments live in a stack buffer for typical calls; only unusually
+            // long argument lists need the heap. (+1: room for a native receiver.)
+            int arg_count = node->children_count - 1;
+            Value stack_args[8];
+            Value *args = arg_count + 1 <= 8 ? stack_args : malloc(sizeof(Value) * (size_t) (arg_count + 1));
+            // Bound native methods receive their receiver as args[0].
+            int native_receiver = callee.type == VAL_BOUND_METHOD &&
+                                  callee.bound_method->method.type == VAL_NATIVE_FN;
+            Value *user_args = native_receiver ? args + 1 : args;
+            if (native_receiver)
+                args[0] = callee.bound_method->receiver;
+            for (int i = 0; i < arg_count; i++)
             {
-                // This is an unbound method call, like Animal.init(this, ...)
+                user_args[i] = eval(node->children[i + 1], env);
+                gc_push_value_if_heap(user_args[i]);
+            }
+
+            if (callee.type == VAL_NATIVE_FN || native_receiver)
+            {
+                NativeFn fn = native_receiver ? callee.bound_method->method.native_fn : callee.native_fn;
+                set_exec_error_line(node->line_num);
+                result = fn(arg_count + native_receiver, args);
+            }
+            else if (callee.type == VAL_BOUND_METHOD)
+            {
+                result = call_function(callee.bound_method->method.func, callee.bound_method->receiver, 1, args,
+                                       arg_count, node->line_num);
+            }
+            else if (callee.type == VAL_FUNC && callee.func->owner_class != NULL)
+            {
+                // Unbound method call such as Animal.init(this, ...): the first
+                // argument is the receiver.
                 Func *func = callee.func;
-                int arg_count = node->children_count - 1;
                 if (arg_count < 1)
-                {
                     report_error(node->line_num, "Unbound method call requires at least one argument for 'this'.");
-                }
-
-                Value *args = malloc(arg_count * sizeof(Value));
-                for (int i = 0; i < arg_count; i++)
-                {
-                    args[i] = eval(node->children[i + 1], env);
-                }
-
                 Value this_val = args[0];
-                // TODO: Add type checking to ensure this_val is an instance of func->owner_class or a subclass
-
-                // Unbound method: slot 0 = `this` (args[0]), then the remaining args.
-                Env *exec_env = make_frame(func->body->frame_slots, func->env);
-                gc_push_env_root(&exec_env);
-                exec_env->slots[0] = value_copy(this_val);
-                for (int i = 1; i < arg_count; i++)
-                    exec_env->slots[i] = value_copy(args[i]);
-                result = exec_block(func->body->children[0], &exec_env);
-                gc_pop_env_root();
-                free(args);
+                PithClass *owner = func->owner_class;
+                TypeSpec *owner_type = type_from_name(owner->name);
+                TYPE_REQUIRE(owner_type, &this_val, node->line_num, "'this' of '%s'", func->name);
+                result = call_function(func, this_val, 1, args + 1, arg_count - 1, node->line_num);
+            }
+            else if (callee.type == VAL_FUNC)
+            {
+                result = call_function(callee.func, (Value){VAL_VOID}, 0, args, arg_count, node->line_num);
             }
             else
             {
-                // Standard function call or bound method call
-                int arg_offset = (callee.type == VAL_BOUND_METHOD) ? 1 : 0;
-                int arg_count = (node->children_count - 1) + arg_offset;
-                Value *args = malloc(arg_count * sizeof(Value));
-
-                if (callee.type == VAL_BOUND_METHOD)
-                {
-                    args[0] = callee.bound_method->receiver;
-                }
-                for (int i = 1; i < node->children_count; i++)
-                {
-                    args[i - 1 + arg_offset] = eval(node->children[i], env);
-                }
-
-                if (callee.type == VAL_BOUND_METHOD)
-                {
-                    if (callee.bound_method->method.type == VAL_NATIVE_FN)
-                    {
-                        set_exec_error_line(node->line_num);
-                        result = callee.bound_method->method.native_fn(arg_count, args);
-                    }
-                    else
-                    {
-                        Func *method = callee.bound_method->method.func;
-                        // Bound method: slot 0 = receiver, then params.
-                        Env *exec_env = make_frame(method->body->frame_slots, method->env);
-                        gc_push_env_root(&exec_env);
-                        exec_env->slots[0] = value_copy(callee.bound_method->receiver);
-                        for (int i = 0; i < (arg_count - arg_offset); i++)
-                            exec_env->slots[i + 1] = value_copy(args[i + arg_offset]);
-                        result = exec_block(method->body->children[0], &exec_env);
-                        gc_pop_env_root();
-                    }
-                    free(args);
-                }
-                else if (callee.type == VAL_FUNC)
-                {
-                    Func *func = callee.func;
-                    // Plain function: params fill slots 0..n-1.
-                    Env *exec_env = make_frame(func->body->frame_slots, func->env);
-                    gc_push_env_root(&exec_env);
-                    for (int i = 0; i < arg_count; i++)
-                        exec_env->slots[i] = value_copy(args[i]);
-                    result = exec_block(func->body->children[0], &exec_env);
-                    gc_pop_env_root();
-                    free(args);
-                }
-                else if (callee.type == VAL_NATIVE_FN)
-                {
-                    set_exec_error_line(node->line_num);
-                    result = callee.native_fn(arg_count, args);
-                    free(args);
-                }
-                else
-                {
-                    report_error(node->line_num, "Expression is not callable.");
-                }
+                report_error(node->line_num, "Expression is not callable.");
             }
+            if (args != stack_args)
+                free(args);
+            gc_pop_roots_to(root_depth);
             break;
         }
         default:
@@ -1945,6 +3026,225 @@ void exec_module(ASTNode *root, Env **env_ptr)
     {
         exec(root->children[i], env_ptr);
     }
+}
+
+// --- Module search ---
+
+/**
+ * @brief Directory holding the standard library's .pith files.
+ *
+ * The PITH_STDLIB environment variable wins if set; otherwise the path baked in
+ * at build time (PITH_STDLIB_DIR, the source tree's stdlib/ — see
+ * CMakeLists.txt), so scripts can be run from any directory.
+ */
+static const char *stdlib_directory(void)
+{
+    const char *from_environment = getenv("PITH_STDLIB");
+    if (from_environment != NULL && from_environment[0] != '\0')
+        return from_environment;
+#ifdef PITH_STDLIB_DIR
+    return PITH_STDLIB_DIR;
+#else
+    return "stdlib";
+#endif
+}
+
+/**
+ * @brief Finds and reads the source of module @p name.
+ *
+ * Looks for "<name>.pith" in, in order:
+ *   1. the standard library directory (see stdlib_directory()),
+ *   2. the directory of the script being run, so a program can import its own
+ *      modules no matter where it is started from,
+ *   3. the current working directory.
+ *
+ * @return The malloc'd source, or NULL if no such file exists (the module may
+ *         still be purely native, e.g. `json`).
+ */
+static char *find_module_source(const char *name)
+{
+    char path[4096];
+    snprintf(path, sizeof(path), "%s/%s.pith", stdlib_directory(), name);
+    char *source = read_file_content(path);
+    if (source != NULL)
+        return source;
+
+    const char *script = sys_script_path();
+    if (script != NULL)
+    {
+        const char *last_separator = strrchr(script, '/');
+#ifdef _WIN32
+        const char *last_backslash = strrchr(script, '\\');
+        if (last_backslash != NULL && (last_separator == NULL || last_backslash > last_separator))
+            last_separator = last_backslash;
+#endif
+        if (last_separator != NULL)
+        {
+            snprintf(path, sizeof(path), "%.*s/%s.pith", (int) (last_separator - script), script, name);
+            source = read_file_content(path);
+            if (source != NULL)
+                return source;
+        }
+    }
+
+    snprintf(path, sizeof(path), "%s.pith", name);
+    return read_file_content(path);
+}
+
+/**
+ * @brief Executes the cases of a switch statement.
+ *
+ * @param node The AST_SWITCH node (children[0] is the subject expression).
+ * @param env_ptr Pointer to the current environment pointer.
+ * @param expr_val The already-evaluated subject (rooted by the caller).
+ * @return A return signal to propagate, or VAL_VOID.
+ */
+static Value exec_switch(ASTNode *node, Env **env_ptr, Value expr_val)
+{
+        int matched = 0;
+
+        for (int i = 1; i < node->children_count; i++)
+        {
+            ASTNode *case_node = node->children[i];
+            if (case_node->type == AST_CASE)
+            {
+                Value case_val = eval(case_node->children[0], *env_ptr);
+
+                if (matched || (expr_val.type == case_val.type &&
+                                ((expr_val.type == VAL_INT && expr_val.int_val == case_val.int_val) ||
+                                 (expr_val.type == VAL_STRING && string_equals(expr_val.string, case_val.string)))))
+                {
+                    matched = 1;
+                    if (case_node->children_count > 1)
+                    {
+                        Value result = exec_block(case_node->children[1], env_ptr);
+                        if (result.type == VAL_BREAK)
+                            return (Value){VAL_VOID};
+                        if (result.type != VAL_VOID)
+                            return result;
+                    }
+                }
+            }
+            else if (case_node->type == AST_DEFAULT)
+            {
+                if (matched)
+                {
+                    if (case_node->children_count > 0)
+                    {
+                        Value result = exec_block(case_node->children[0], env_ptr);
+                        if (result.type == VAL_BREAK)
+                            return (Value){VAL_VOID};
+                        if (result.type != VAL_VOID)
+                            return result;
+                    }
+                }
+            }
+        }
+
+        if (!matched)
+        {
+            for (int i = 1; i < node->children_count; i++)
+            {
+                if (node->children[i]->type == AST_DEFAULT)
+                {
+                    ASTNode *default_node = node->children[i];
+                    if (default_node->children_count > 0)
+                    {
+                        Value result = exec_block(default_node->children[0], env_ptr);
+                        if (result.type == VAL_BREAK)
+                            return (Value){VAL_VOID};
+                        if (result.type != VAL_VOID)
+                            return result;
+                    }
+                }
+            }
+        }
+    return (Value){VAL_VOID};
+}
+
+/**
+ * @brief Runs a block with @p frame installed as the innermost try handler.
+ *
+ * @param block The block to execute.
+ * @param env_ptr Pointer to the current environment pointer.
+ * @param result Receives the block's result (return/break/continue signal or
+ *               VAL_VOID) when it completes normally; untouched on error.
+ * @param frame Handler frame; on error it holds the message and line.
+ * @return 1 if the block raised an error, 0 otherwise.
+ */
+static int exec_protected(ASTNode *block, Env **env_ptr, Value *result, TryFrame *frame)
+{
+    // Neither of these is modified after setjmp(), so both are still valid
+    // after the longjmp back here.
+    Env *saved_env = *env_ptr;
+    GcRootSnapshot roots = gc_root_snapshot();
+
+    frame->prev = current_try;
+    current_try = frame;
+    if (setjmp(frame->jump) != 0)
+    {
+        // Arrived from report_error(), which already popped the frame. The jump
+        // skipped every gc_pop_* between here and the error, so truncate the
+        // root stacks back to where they were (and abandon any print in progress).
+        gc_restore_root_snapshot(roots);
+        printing_count = 0;
+        *env_ptr = saved_env;
+        return 1;
+    }
+    *result = exec_block(block, env_ptr);
+    current_try = frame->prev;
+    return 0;
+}
+
+/**
+ * @brief Executes a try/rescue/else/finally statement.
+ *
+ *  - body raises and there is a rescue: the rescue block runs with the error
+ *    variable (if named) bound to the message string.
+ *  - body completes without raising or exiting early (return/break/continue):
+ *    the else block runs. Errors in else are not rescued.
+ *  - finally always runs, last. If it exits early itself (return/break/continue)
+ *    that wins and any pending error is discarded; otherwise a pending error
+ *    (unrescued, or raised by rescue/else) is re-raised after it.
+ *
+ * @param node The AST_TRY node (children: body, else, finally[, rescue]).
+ * @param env_ptr Pointer to the current environment pointer.
+ * @return The control-flow signal to propagate, or VAL_VOID.
+ */
+static Value exec_try(ASTNode *node, Env **env_ptr)
+{
+    ASTNode *body = node->children[0];
+    ASTNode *else_block = node->children[1];
+    ASTNode *finally_block = node->children[2];
+    ASTNode *rescue = node->children_count > 3 ? node->children[3] : NULL;
+
+    TryFrame frame;
+    Value result = {VAL_VOID};
+    int has_error = exec_protected(body, env_ptr, &result, &frame);
+
+    if (has_error && rescue != NULL)
+    {
+        // Bind the message in a scope that ends with the rescue block. The
+        // string is a copy, so frame.message can be reused below.
+        Env *rescue_env = *env_ptr;
+        if (rescue->value)
+            bind_var(rescue, &rescue_env, cstring_value(frame.message));
+        has_error = exec_protected(rescue->children[0], &rescue_env, &result, &frame);
+    }
+    else if (!has_error && result.type == VAL_VOID)
+    {
+        has_error = exec_protected(else_block, env_ptr, &result, &frame);
+    }
+
+    // A pending return value (e.g. a fresh string) must survive the finally block.
+    gc_push_value(result);
+    Value finally_result = exec_block(finally_block, env_ptr);
+    gc_pop_root();
+    if (finally_result.type != VAL_VOID)
+        return finally_result;
+    if (has_error)
+        report_error(frame.line, "%s", frame.message);
+    return result;
 }
 
 /**
@@ -1971,10 +3271,18 @@ Value exec(ASTNode *node, Env **env_ptr)
     {
         case AST_CLASS_DEF:
         {
+            // Native type names (Regex, Match, ...) are reserved; see native_class_find().
+            if (native_class_find(node->value) != NULL)
+                report_error(node->line_num, "Cannot define class '%s': that name is a built-in type. "
+                             "Choose another name.", node->value);
             PithClass *pith_class = (PithClass *) allocate_obj(sizeof(PithClass), OBJ_CLASS);
+            gc_push_root((ObjHeader *) pith_class); // Until env_define() below links it in.
             pith_class->name = strdup(node->value);
+            pith_class->methods = NULL; // Marked during the allocation below; must not be garbage.
+            pith_class->parent = NULL;
             pith_class->methods = hashmap_create(VAL_STRING, VAL_FUNC);
             pith_class->fields = NULL;
+            pith_class->field_types = NULL;
             pith_class->field_count = 0;
             pith_class->parent = NULL;
 
@@ -1996,13 +3304,15 @@ Value exec(ASTNode *node, Env **env_ptr)
                         hashmap_set(pith_class->methods, entry->key, entry->value, node->line_num);
                     }
                 }
-                // Copy parent fields
+                // Copy parent fields (and their declared types)
                 if (parent_class->field_count > 0)
                 {
                     pith_class->fields = malloc(sizeof(char *) * parent_class->field_count);
+                    pith_class->field_types = malloc(sizeof(TypeSpec *) * parent_class->field_count);
                     for (int i = 0; i < parent_class->field_count; i++)
                     {
                         pith_class->fields[i] = strdup(parent_class->fields[i]);
+                        pith_class->field_types[i] = parent_class->field_types[i];
                     }
                     pith_class->field_count = parent_class->field_count;
                 }
@@ -2019,6 +3329,7 @@ Value exec(ASTNode *node, Env **env_ptr)
             class_val.type = VAL_CLASS;
             class_val.pith_class = pith_class;
             env_define(env_ptr, pith_class->name, class_val);
+            gc_pop_root();
 
             // Process the body of the class for inline definitions
             for (int i = 0; i < node->children_count; i++)
@@ -2028,7 +3339,10 @@ Value exec(ASTNode *node, Env **env_ptr)
                 {
                     pith_class->field_count++;
                     pith_class->fields = realloc(pith_class->fields, sizeof(char *) * pith_class->field_count);
+                    pith_class->field_types = realloc(pith_class->field_types,
+                                                      sizeof(TypeSpec *) * pith_class->field_count);
                     pith_class->fields[pith_class->field_count - 1] = strdup(child->value);
+                    pith_class->field_types[pith_class->field_count - 1] = child->type_spec;
                 }
                 else if (child->type == AST_FUNC_DEF)
                 {
@@ -2090,126 +3404,60 @@ Value exec(ASTNode *node, Env **env_ptr)
         }
         case AST_VAR_DECL:
         {
-            if (node->children_count > 0 && node->children[0]->type == AST_ARRAY_SPECIFIER)
+            TypeSpec *type = node->type_spec;
+            ASTNode *init = node->children_count > 0 ? node->children[0] : NULL;
+            Value val;
+            if (init && init->type == AST_ARRAY_SPECIFIER)
             {
-                ASTNode *array_spec = node->children[0];
-                if (array_spec->children_count == 0)
+                // `T[n] a`: a fixed-size list of n zero values; `T[] a`: an empty, growable list.
+                List *list = (List *) allocate_obj(sizeof(List), OBJ_LIST);
+                list->element_spec = type->element;
+                val.type = VAL_LIST;
+                val.list = list;
+                if (init->children_count > 0)
                 {
-                    // Declare an empty dynamic list; set element_type if declared as list<...>
-                    List *list = (List *) allocate_obj(sizeof(List), OBJ_LIST);
-                    list->count = 0;
-                    list->capacity = 0;
-                    list->is_fixed = 0;
-                    list->items = NULL;
-                    list->element_type = VAL_VOID;
-                    // If declared type_name is list<...>, set element_type
-                    if (node->type_name && strncmp(node->type_name, "list<", 5) == 0)
-                    {
-                        char inner[32];
-                        sscanf(node->type_name, "list<%31[^>]>", inner);
-                        list->element_type = get_type_from_name(inner);
-                    }
-                    bind_var(node, env_ptr, (Value){.type = VAL_LIST, .list = list});
-                }
-                else
-                {
-                    Value size_val = eval(array_spec->children[0], *env_ptr);
-                    int size = size_val.int_val;
-
-#ifdef DEBUG_TRACE_MEMORY
-                    printf("[MEMORY] Initializing fixed-size array '%s' of size %d\n", node->value, size);
-#endif
-#ifdef DEBUG_DEEP_DIVE_INTERP
-                    printf("[DDI_ARRAY_INIT] Initializing fixed-size array '%s' of size %d\n", node->value, size);
-#endif
-
-                    List *list = (List *) allocate_obj(sizeof(List), OBJ_LIST);
-                    list->count = size;
-                    list->capacity = size;
+                    gc_push_value(val);
+                    Value size_val = eval(init->children[0], *env_ptr);
+                    if (size_val.type != VAL_INT || size_val.int_val < 0 || size_val.int_val > INT_MAX)
+                        report_error(node->line_num, "Array size must be an integer from 0 to %d.", INT_MAX);
+                    int size = (int) size_val.int_val;
                     list->is_fixed = 1;
-                    list->items = calloc(size, sizeof(Value));
-
-                    Value list_val;
-                    list_val.type = VAL_LIST;
-                    list_val.list = list;
-                    bind_var(node, env_ptr, list_val);
-                }
-            }
-            else if (strncmp(node->type_name, "map<", 4) == 0)
-            {
-                char key_type_name[32], value_type_name[32];
-                sscanf(node->type_name, "map<%31[^,],%31[^>]>", key_type_name, value_type_name);
-
-                ValueType key_type = get_type_from_name(key_type_name);
-                ValueType value_type = get_type_from_name(value_type_name);
-
-                Value map_val;
-                map_val.type = VAL_HASHMAP;
-                map_val.hashmap = hashmap_create(key_type, value_type);
-
-                if (node->children_count > 0)
-                {
-                    ASTNode *literal = node->children[0];
-
-                    gc_push_root((ObjHeader *) map_val.hashmap);
-
-                    for (int i = 0; i < literal->children_count; i += 2)
+                    list->capacity = size;
+                    list->items = calloc((size_t) (size > 0 ? size : 1), sizeof(Value));
+                    for (int i = 0; i < size; i++)
                     {
-                        Value key = eval(literal->children[i], *env_ptr);
-                        Value val = eval(literal->children[i + 1], *env_ptr);
-                        hashmap_set(map_val.hashmap, key.str_val, val, literal->line_num);
+                        list->items[i] = type_zero_value(type->element);
+                        list->count = i + 1; // Count each element as it is set so the GC marks it.
                     }
-
                     gc_pop_root();
                 }
-                bind_var(node, env_ptr, map_val);
+            }
+            else if (init)
+            {
+                val = eval(init, *env_ptr);
+                TYPE_REQUIRE(type, &val, node->line_num, "variable '%s'", node->value);
             }
             else
             {
-                Value val = (node->children_count > 0) ? eval(node->children[0], *env_ptr) : (Value){VAL_VOID};
-                // If a declared list type is provided, enforce element types when initializer is a list
-                if (node->type_name && strncmp(node->type_name, "list<", 5) == 0)
-                {
-                    char inner[32];
-                    sscanf(node->type_name, "list<%31[^>]>", inner);
-                    ValueType declared = get_type_from_name(inner);
-                    if (val.type == VAL_LIST)
-                    {
-                        // Set element_type on the created list and validate
-                        val.list->element_type = declared;
-                        for (int i = 0; i < val.list->count; i++)
-                        {
-                            if (declared != VAL_VOID && val.list->items[i].type != declared)
-                            {
-                                report_error(node->line_num,
-                                             "Type mismatch in list literal: expected elements of type '%s'.",
-                                             get_value_type_name(declared));
-                            }
-                        }
-                    }
-                    else if (val.type == VAL_VOID)
-                    {
-                        // Nothing to do: already handled above for empty list creation
-                    }
-                    else
-                    {
-                        // If initializer is not a list, it's a type error
-                        report_error(node->line_num, "Type mismatch: declared '%s' but initializer is '%s'.",
-                                     node->type_name, get_value_type_name(val.type));
-                    }
-                }
-                bind_var(node, env_ptr, val);
+                val = type_zero_value(type); // 0, 0.0, "", false, empty list/map, or void.
             }
+            bind_var(node, env_ptr, val);
             break;
         }
         case AST_ASSIGNMENT:
         {
             ASTNode *target = node->children[0];
+            int root_depth = gc_temp_root_depth();
             Value val_to_assign = eval(node->children[1], *env_ptr);
+            gc_push_value(val_to_assign); // Evaluating the target may allocate.
             if (target->type == AST_VAR_REF)
             {
                 if (target->is_local) // Resolved to a frame slot.
+                {
+                    TYPE_REQUIRE(frame_slot_type(*env_ptr, target->var_depth, target->var_slot), &val_to_assign,
+                                 target->line_num, "variable '%s'", target->value);
                     frame_set_local(*env_ptr, target->var_depth, target->var_slot, val_to_assign);
+                }
                 else
                     env_assign(*env_ptr, target->value, val_to_assign, target->line_num);
             }
@@ -2218,6 +3466,12 @@ Value exec(ASTNode *node, Env **env_ptr)
                 Value object = eval(target->children[0], *env_ptr);
                 if (object.type == VAL_INSTANCE)
                 {
+                    PithClass *cls = object.instance->pith_class;
+                    int field = class_field_index(cls, target->value);
+                    if (field < 0)
+                        report_error(target->line_num, "Class '%s' has no field '%s'.", cls->name, target->value);
+                    TYPE_REQUIRE(cls->field_types ? cls->field_types[field] : NULL, &val_to_assign, target->line_num,
+                                 "field '%s' of %s", target->value, cls->name);
                     hashmap_set(object.instance->fields, target->value, val_to_assign, target->line_num);
                 }
                 else
@@ -2229,6 +3483,7 @@ Value exec(ASTNode *node, Env **env_ptr)
             else if (target->type == AST_INDEX_ACCESS)
             {
                 Value collection = eval(target->children[0], *env_ptr);
+                gc_push_value(collection);
                 Value index_val = eval(target->children[1], *env_ptr);
 
 #ifdef DEBUG_DEEP_DIVE_INTERP
@@ -2239,15 +3494,22 @@ Value exec(ASTNode *node, Env **env_ptr)
                 {
                     if (index_val.type != VAL_STRING)
                         report_error(target->line_num, "Hashmap index must be a string.");
-                    hashmap_set(collection.hashmap, index_val.str_val, val_to_assign, target->line_num);
+                    TYPE_REQUIRE(collection.hashmap->value_spec, &val_to_assign, target->line_num, "map value");
+                    hashmap_set(collection.hashmap, AS_CSTRING(index_val), val_to_assign, target->line_num);
+                }
+                else if (collection.type == VAL_STRING)
+                {
+                    report_error(target->line_num, "Strings are immutable; build a new string instead "
+                                 "(e.g. with slicing and +).");
                 }
                 else if (collection.type == VAL_LIST)
                 {
                     if (index_val.type != VAL_INT)
                         report_error(target->line_num, "List or array index must be an integer.");
-                    int index = index_val.int_val;
+                    int64_t index = index_val.int_val;
                     if (index < 0 || index >= collection.list->count)
                         report_error(target->line_num, "Index out of bounds.");
+                    TYPE_REQUIRE(collection.list->element_spec, &val_to_assign, target->line_num, "list element");
                     collection.list->items[index] = val_to_assign;
                 }
                 else
@@ -2256,12 +3518,12 @@ Value exec(ASTNode *node, Env **env_ptr)
                                  "Index assignment is only supported for lists, arrays, and hashmaps.");
                 }
             }
+            gc_pop_roots_to(root_depth);
             break;
         }
         case AST_IF:
         {
-            Value cond = eval(node->children[0], *env_ptr);
-            if (cond.int_val)
+            if (eval_condition(node->children[0], *env_ptr, "if"))
             {
                 return exec_block(node->children[1], env_ptr);
             }
@@ -2281,7 +3543,7 @@ Value exec(ASTNode *node, Env **env_ptr)
         }
         case AST_WHILE:
         {
-            while (eval(node->children[0], *env_ptr).int_val)
+            while (eval_condition(node->children[0], *env_ptr, "while"))
             {
                 Value result = exec_block(node->children[1], env_ptr);
                 if (result.type == VAL_BREAK)
@@ -2296,19 +3558,33 @@ Value exec(ASTNode *node, Env **env_ptr)
         case AST_FOREACH:
         {
             Value collection = eval(node->children[0], *env_ptr);
+            if (collection.type == VAL_HASHMAP)
+            {
+                // Iterating a map visits its keys, in insertion order.
+                gc_push_value(collection);
+                collection = map_to_list(collection.hashmap, 1);
+                gc_pop_root();
+            }
             if (collection.type != VAL_LIST)
             {
-                report_error(node->line_num, "foreach loop can only iterate over a list or array.");
+                report_error(node->line_num, "foreach loop can only iterate over a list, array or map.");
             }
 
+            // The list may be a temporary (e.g. s.split(",")); keep it alive for
+            // the whole loop.
+            int root_depth = gc_temp_root_depth();
+            gc_push_value(collection);
+            Value loop_result = {VAL_VOID};
             List *list = collection.list;
             for (int i = 0; i < list->count; i++)
             {
                 Env *loop_env = *env_ptr;
+                Value item = list->items[i];
+                TYPE_REQUIRE(node->type_spec, &item, node->line_num, "loop variable '%s'", node->value);
                 if (node->is_local) // Loop variable is a frame slot.
-                    frame_set_local(*env_ptr, node->var_depth, node->var_slot, list->items[i]);
+                    frame_set_local(*env_ptr, node->var_depth, node->var_slot, item);
                 else
-                    env_define(&loop_env, node->value, list->items[i]);
+                    env_define_typed(&loop_env, node->value, item, node->type_spec);
 
 #ifdef DEBUG_TRACE_EXECUTION
                 printf("[EXEC] foreach loop iteration %d: defining '%s'\n", i, node->value);
@@ -2323,13 +3599,23 @@ Value exec(ASTNode *node, Env **env_ptr)
                 if (result.type == VAL_CONTINUE)
                     continue;
                 if (result.type != VAL_VOID)
-                    return result;
+                {
+                    loop_result = result; // return from inside the loop
+                    break;
+                }
             }
-            break;
+            gc_pop_roots_to(root_depth);
+            return loop_result;
         }
         case AST_FOR:
         {
+            // for (init; condition; increment): body
+            // The loop variable lives in for_env, a C local. Register it as a GC
+            // root for the whole loop: the condition and increment may allocate
+            // (e.g. `i < items.len()`), and nothing else keeps for_env alive.
             Env *for_env = *env_ptr;
+            gc_push_env_root(&for_env);
+            Value loop_result = {VAL_VOID};
 #ifdef DEBUG_TRACE_EXECUTION
             printf("[EXEC] for loop initializer\n");
 #endif
@@ -2346,27 +3632,18 @@ Value exec(ASTNode *node, Env **env_ptr)
 #ifdef DEBUG_DEEP_DIVE_INTERP
                 printf("[DDI_FOR_LOOP] Condition check\n");
 #endif
-                Value condition = eval(node->children[1], for_env);
-                if (!condition.int_val)
+                if (!eval_condition(node->children[1], for_env, "for"))
                     break;
 
                 Value result = exec_block(node->children[3], &for_env);
                 if (result.type == VAL_BREAK)
                     break;
-                if (result.type == VAL_CONTINUE)
+                if (result.type != VAL_VOID && result.type != VAL_CONTINUE)
                 {
-#ifdef DEBUG_TRACE_EXECUTION
-                    printf("[EXEC] for loop increment\n");
-#endif
-#ifdef DEBUG_DEEP_DIVE_INTERP
-                    printf("[DDI_FOR_LOOP] Increment\n");
-#endif
-                    exec(node->children[2], &for_env);
-                    continue;
+                    loop_result = result; // return from inside the loop
+                    break;
                 }
-                if (result.type != VAL_VOID)
-                    return result;
-
+                // Normal iteration or `continue`: run the increment.
 #ifdef DEBUG_TRACE_EXECUTION
                 printf("[EXEC] for loop increment\n");
 #endif
@@ -2375,7 +3652,8 @@ Value exec(ASTNode *node, Env **env_ptr)
 #endif
                 exec(node->children[2], &for_env);
             }
-            break;
+            gc_pop_env_root();
+            return loop_result;
         }
         case AST_DO_WHILE:
         {
@@ -2389,71 +3667,16 @@ Value exec(ASTNode *node, Env **env_ptr)
                 if (result.type != VAL_VOID)
                     return result;
             }
-            while (eval(node->children[1], *env_ptr).int_val);
+            while (eval_condition(node->children[1], *env_ptr, "do-while"));
             break;
         }
         case AST_SWITCH:
         {
             Value expr_val = eval(node->children[0], *env_ptr);
-            int matched = 0;
-
-            for (int i = 1; i < node->children_count; i++)
-            {
-                ASTNode *case_node = node->children[i];
-                if (case_node->type == AST_CASE)
-                {
-                    Value case_val = eval(case_node->children[0], *env_ptr);
-
-                    if (matched || (expr_val.type == case_val.type &&
-                                    ((expr_val.type == VAL_INT && expr_val.int_val == case_val.int_val) ||
-                                     (expr_val.type == VAL_STRING && strcmp(expr_val.str_val, case_val.str_val) == 0))))
-                    {
-                        matched = 1;
-                        if (case_node->children_count > 1)
-                        {
-                            Value result = exec_block(case_node->children[1], env_ptr);
-                            if (result.type == VAL_BREAK)
-                                return (Value){VAL_VOID};
-                            if (result.type != VAL_VOID)
-                                return result;
-                        }
-                    }
-                }
-                else if (case_node->type == AST_DEFAULT)
-                {
-                    if (matched)
-                    {
-                        if (case_node->children_count > 0)
-                        {
-                            Value result = exec_block(case_node->children[0], env_ptr);
-                            if (result.type == VAL_BREAK)
-                                return (Value){VAL_VOID};
-                            if (result.type != VAL_VOID)
-                                return result;
-                        }
-                    }
-                }
-            }
-
-            if (!matched)
-            {
-                for (int i = 1; i < node->children_count; i++)
-                {
-                    if (node->children[i]->type == AST_DEFAULT)
-                    {
-                        ASTNode *default_node = node->children[i];
-                        if (default_node->children_count > 0)
-                        {
-                            Value result = exec_block(default_node->children[0], env_ptr);
-                            if (result.type == VAL_BREAK)
-                                return (Value){VAL_VOID};
-                            if (result.type != VAL_VOID)
-                                return result;
-                        }
-                    }
-                }
-            }
-            break;
+            gc_push_value(expr_val); // Case expressions may allocate.
+            Value result = exec_switch(node, env_ptr, expr_val);
+            gc_pop_root();
+            return result;
         }
         case AST_BREAK:
             return (Value){VAL_BREAK};
@@ -2468,20 +3691,19 @@ Value exec(ASTNode *node, Env **env_ptr)
             printf("[DDI_IMPORT] Importing module '%s'\n", node->value);
 #endif
 
-            char module_name[256];
-            snprintf(module_name, sizeof(module_name), "stdlib/%s.pith", node->value);
-            char *source = read_file_content(module_name);
-            if (!source)
-            {
-                snprintf(module_name, sizeof(module_name), "%s.pith", node->value);
-                source = read_file_content(module_name);
-            }
+            char *source = find_module_source(node->value);
+            Value native_module = hashmap_get(native_module_funcs, node->value);
+            if (source == NULL && native_module.type != VAL_HASHMAP)
+                report_error(node->line_num, "No module named '%s' (looked for %s.pith in the standard library "
+                             "directory, the script's directory and the current directory).", node->value,
+                             node->value);
 
+            // module_env lives only in this C local while the module loads.
             Env *module_env = NULL;
-            Value native_mod_val = hashmap_get(native_module_funcs, node->value);
-            if (native_mod_val.type == VAL_HASHMAP)
+            gc_push_env_root(&module_env);
+            if (native_module.type == VAL_HASHMAP)
             {
-                HashMap *funcs = native_mod_val.hashmap;
+                HashMap *funcs = native_module.hashmap;
                 for (int i = 0; i < funcs->bucket_count; i++)
                 {
                     for (MapEntry *entry = funcs->buckets[i]; entry != NULL; entry = entry->next)
@@ -2503,7 +3725,9 @@ Value exec(ASTNode *node, Env **env_ptr)
             }
 
             Module *module = (Module *) allocate_obj(sizeof(Module), OBJ_MODULE);
+            gc_push_root((ObjHeader *) module); // Until env_define() below links it in.
             module->name = strdup(node->value);
+            module->members = NULL; // Marked during the allocation below; must not be garbage.
             module->members = hashmap_create(VAL_STRING, VAL_VOID);
 
             for (Env *e = module_env; e != NULL; e = e->next)
@@ -2516,10 +3740,23 @@ Value exec(ASTNode *node, Env **env_ptr)
             module_val.module = module;
 
             env_define(env_ptr, node->value, module_val);
+            gc_pop_root();
+            gc_pop_env_root();
             break;
         }
         case AST_RETURN:
             return eval(node->children[0], *env_ptr);
+        case AST_TRY:
+            return exec_try(node, env_ptr);
+        case AST_RAISE:
+        {
+            Value message = eval(node->children[0], *env_ptr);
+            if (message.type != VAL_STRING)
+                report_error(node->line_num, "raise expects a string message, got '%s'.",
+                             get_value_type_name(message.type));
+            report_error(node->line_num, "%s", AS_CSTRING(message));
+            break; // Unreachable
+        }
         default:
             eval(node, *env_ptr);
             break;
@@ -2556,12 +3793,13 @@ void interpret(ASTNode *root)
 }
 
 /**
- * @brief Reads the entire content of a file into a string.
+ * @brief Reads an entire file, preserving every byte (binary-safe).
  *
  * @param filename The path to the file.
- * @return A dynamically allocated string containing the file content, or NULL on failure.
+ * @param length_out If non-NULL, receives the number of bytes read.
+ * @return A malloc'd buffer holding the bytes plus a terminating NUL, or NULL on failure.
  */
-char *read_file_content(const char *filename)
+char *read_file_bytes(const char *filename, long *length_out)
 {
     FILE *file = fopen(filename, "rb");
     if (file == NULL)
@@ -2569,14 +3807,32 @@ char *read_file_content(const char *filename)
     fseek(file, 0, SEEK_END);
     long length = ftell(file);
     fseek(file, 0, SEEK_SET);
-    char *buffer = malloc(length + 1);
+    if (length < 0)
+    {
+        fclose(file);
+        return NULL;
+    }
+    char *buffer = malloc((size_t) length + 1);
     if (buffer == NULL)
     {
         fclose(file);
         return NULL;
     }
-    fread(buffer, 1, length, file);
-    buffer[length] = '\0';
+    size_t read = fread(buffer, 1, (size_t) length, file);
+    buffer[read] = '\0';
     fclose(file);
+    if (length_out)
+        *length_out = (long) read;
     return buffer;
+}
+
+/**
+ * @brief Reads an entire text file (e.g. Pith source) into a NUL-terminated string.
+ *
+ * @param filename The path to the file.
+ * @return A malloc'd string with the file content, or NULL on failure.
+ */
+char *read_file_content(const char *filename)
+{
+    return read_file_bytes(filename, NULL);
 }

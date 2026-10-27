@@ -71,12 +71,13 @@ tracked in `TODO.md` under "Performance".
 
 4. **Call frames.** The call path builds the argument scope by appending one GC
    object per argument and walking to the tail of the closure chain. A single
-   pre-sized frame object removes both costs, and would also close the remaining
-   `args[]` GC-rooting gap noted in `TODO.md`.
+   pre-sized frame object removes both costs. (Arguments are already evaluated
+   into a stack buffer for calls with up to 8 arguments, and are GC-rooted.)
 
 5. **HashMap resizing.** `bucket_count` is fixed at 16 with no rehash, so large
    maps degrade to O(n) chains. Grow and rehash past a load factor (~0.75).
 
-Minor: integer `^` calls libm `pow()` then casts — integer exponentiation by
-squaring is faster and exact; `mark_object()` in `gc.c` is recursive and can
-overflow the C stack on deep object graphs.
+Done since this list was written: maps grow and rehash past a 3/4 load factor
+(item 5); integer `^` uses exact exponentiation by squaring; and GC marking in
+`gc.c` is iterative (a gray stack), so deeply nested data can no longer
+overflow the C stack.

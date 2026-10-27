@@ -65,6 +65,26 @@ CMAKE_BINARY_DIR = /home/celdridge/projects/pith/pith_lang/build
 #=============================================================================
 # Targets provided globally by CMake.
 
+# Special rule for the target package
+package: preinstall
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --cyan "Run CPack packaging tool..."
+	/usr/bin/cpack --config ./CPackConfig.cmake
+.PHONY : package
+
+# Special rule for the target package
+package/fast: package
+.PHONY : package/fast
+
+# Special rule for the target package_source
+package_source:
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --cyan "Run CPack packaging tool for source..."
+	/usr/bin/cpack --config ./CPackSourceConfig.cmake /home/celdridge/projects/pith/pith_lang/build/CPackSourceConfig.cmake
+.PHONY : package_source
+
+# Special rule for the target package_source
+package_source/fast: package_source
+.PHONY : package_source/fast
+
 # Special rule for the target edit_cache
 edit_cache:
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --cyan "No interactive CMake dialog available..."
@@ -84,6 +104,51 @@ rebuild_cache:
 # Special rule for the target rebuild_cache
 rebuild_cache/fast: rebuild_cache
 .PHONY : rebuild_cache/fast
+
+# Special rule for the target list_install_components
+list_install_components:
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --cyan "Available install components are: \"Unspecified\""
+.PHONY : list_install_components
+
+# Special rule for the target list_install_components
+list_install_components/fast: list_install_components
+.PHONY : list_install_components/fast
+
+# Special rule for the target install
+install: preinstall
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --cyan "Install the project..."
+	/usr/bin/cmake -P cmake_install.cmake
+.PHONY : install
+
+# Special rule for the target install
+install/fast: preinstall/fast
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --cyan "Install the project..."
+	/usr/bin/cmake -P cmake_install.cmake
+.PHONY : install/fast
+
+# Special rule for the target install/local
+install/local: preinstall
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --cyan "Installing only the local directory..."
+	/usr/bin/cmake -DCMAKE_INSTALL_LOCAL_ONLY=1 -P cmake_install.cmake
+.PHONY : install/local
+
+# Special rule for the target install/local
+install/local/fast: preinstall/fast
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --cyan "Installing only the local directory..."
+	/usr/bin/cmake -DCMAKE_INSTALL_LOCAL_ONLY=1 -P cmake_install.cmake
+.PHONY : install/local/fast
+
+# Special rule for the target install/strip
+install/strip: preinstall
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --cyan "Installing the project stripped..."
+	/usr/bin/cmake -DCMAKE_INSTALL_DO_STRIP=1 -P cmake_install.cmake
+.PHONY : install/strip
+
+# Special rule for the target install/strip
+install/strip/fast: preinstall/fast
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --cyan "Installing the project stripped..."
+	/usr/bin/cmake -DCMAKE_INSTALL_DO_STRIP=1 -P cmake_install.cmake
+.PHONY : install/strip/fast
 
 # The main all target
 all: cmake_check_build_system
@@ -128,6 +193,58 @@ pith_lang: cmake_check_build_system
 pith_lang/fast:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/build
 .PHONY : pith_lang/fast
+
+#=============================================================================
+# Target rules for targets named uninstall
+
+# Build rule for target.
+uninstall: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 uninstall
+.PHONY : uninstall
+
+# fast build rule for target.
+uninstall/fast:
+	$(MAKE) $(MAKESILENT) -f _deps/raylib-build/CMakeFiles/uninstall.dir/build.make _deps/raylib-build/CMakeFiles/uninstall.dir/build
+.PHONY : uninstall/fast
+
+#=============================================================================
+# Target rules for targets named raylib
+
+# Build rule for target.
+raylib: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 raylib
+.PHONY : raylib
+
+# fast build rule for target.
+raylib/fast:
+	$(MAKE) $(MAKESILENT) -f _deps/raylib-build/raylib/CMakeFiles/raylib.dir/build.make _deps/raylib-build/raylib/CMakeFiles/raylib.dir/build
+.PHONY : raylib/fast
+
+#=============================================================================
+# Target rules for targets named glfw
+
+# Build rule for target.
+glfw: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 glfw
+.PHONY : glfw
+
+# fast build rule for target.
+glfw/fast:
+	$(MAKE) $(MAKESILENT) -f _deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/build.make _deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/build
+.PHONY : glfw/fast
+
+#=============================================================================
+# Target rules for targets named update_mappings
+
+# Build rule for target.
+update_mappings: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 update_mappings
+.PHONY : update_mappings
+
+# fast build rule for target.
+update_mappings/fast:
+	$(MAKE) $(MAKESILENT) -f _deps/raylib-build/raylib/external/glfw/src/CMakeFiles/update_mappings.dir/build.make _deps/raylib-build/raylib/external/glfw/src/CMakeFiles/update_mappings.dir/build
+.PHONY : update_mappings/fast
 
 gc.o: gc.c.o
 .PHONY : gc.o
@@ -177,6 +294,246 @@ interpreter.c.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/interpreter.c.s
 .PHONY : interpreter.c.s
 
+lib/crypto_module.o: lib/crypto_module.c.o
+.PHONY : lib/crypto_module.o
+
+# target to build an object file
+lib/crypto_module.c.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/lib/crypto_module.c.o
+.PHONY : lib/crypto_module.c.o
+
+lib/crypto_module.i: lib/crypto_module.c.i
+.PHONY : lib/crypto_module.i
+
+# target to preprocess a source file
+lib/crypto_module.c.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/lib/crypto_module.c.i
+.PHONY : lib/crypto_module.c.i
+
+lib/crypto_module.s: lib/crypto_module.c.s
+.PHONY : lib/crypto_module.s
+
+# target to generate assembly for a file
+lib/crypto_module.c.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/lib/crypto_module.c.s
+.PHONY : lib/crypto_module.c.s
+
+lib/encoding_module.o: lib/encoding_module.c.o
+.PHONY : lib/encoding_module.o
+
+# target to build an object file
+lib/encoding_module.c.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/lib/encoding_module.c.o
+.PHONY : lib/encoding_module.c.o
+
+lib/encoding_module.i: lib/encoding_module.c.i
+.PHONY : lib/encoding_module.i
+
+# target to preprocess a source file
+lib/encoding_module.c.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/lib/encoding_module.c.i
+.PHONY : lib/encoding_module.c.i
+
+lib/encoding_module.s: lib/encoding_module.c.s
+.PHONY : lib/encoding_module.s
+
+# target to generate assembly for a file
+lib/encoding_module.c.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/lib/encoding_module.c.s
+.PHONY : lib/encoding_module.c.s
+
+lib/gui.o: lib/gui.c.o
+.PHONY : lib/gui.o
+
+# target to build an object file
+lib/gui.c.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/lib/gui.c.o
+.PHONY : lib/gui.c.o
+
+lib/gui.i: lib/gui.c.i
+.PHONY : lib/gui.i
+
+# target to preprocess a source file
+lib/gui.c.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/lib/gui.c.i
+.PHONY : lib/gui.c.i
+
+lib/gui.s: lib/gui.c.s
+.PHONY : lib/gui.s
+
+# target to generate assembly for a file
+lib/gui.c.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/lib/gui.c.s
+.PHONY : lib/gui.c.s
+
+lib/http_module.o: lib/http_module.c.o
+.PHONY : lib/http_module.o
+
+# target to build an object file
+lib/http_module.c.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/lib/http_module.c.o
+.PHONY : lib/http_module.c.o
+
+lib/http_module.i: lib/http_module.c.i
+.PHONY : lib/http_module.i
+
+# target to preprocess a source file
+lib/http_module.c.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/lib/http_module.c.i
+.PHONY : lib/http_module.c.i
+
+lib/http_module.s: lib/http_module.c.s
+.PHONY : lib/http_module.s
+
+# target to generate assembly for a file
+lib/http_module.c.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/lib/http_module.c.s
+.PHONY : lib/http_module.c.s
+
+lib/io_module.o: lib/io_module.c.o
+.PHONY : lib/io_module.o
+
+# target to build an object file
+lib/io_module.c.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/lib/io_module.c.o
+.PHONY : lib/io_module.c.o
+
+lib/io_module.i: lib/io_module.c.i
+.PHONY : lib/io_module.i
+
+# target to preprocess a source file
+lib/io_module.c.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/lib/io_module.c.i
+.PHONY : lib/io_module.c.i
+
+lib/io_module.s: lib/io_module.c.s
+.PHONY : lib/io_module.s
+
+# target to generate assembly for a file
+lib/io_module.c.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/lib/io_module.c.s
+.PHONY : lib/io_module.c.s
+
+lib/json_module.o: lib/json_module.c.o
+.PHONY : lib/json_module.o
+
+# target to build an object file
+lib/json_module.c.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/lib/json_module.c.o
+.PHONY : lib/json_module.c.o
+
+lib/json_module.i: lib/json_module.c.i
+.PHONY : lib/json_module.i
+
+# target to preprocess a source file
+lib/json_module.c.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/lib/json_module.c.i
+.PHONY : lib/json_module.c.i
+
+lib/json_module.s: lib/json_module.c.s
+.PHONY : lib/json_module.s
+
+# target to generate assembly for a file
+lib/json_module.c.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/lib/json_module.c.s
+.PHONY : lib/json_module.c.s
+
+lib/regex_module.o: lib/regex_module.c.o
+.PHONY : lib/regex_module.o
+
+# target to build an object file
+lib/regex_module.c.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/lib/regex_module.c.o
+.PHONY : lib/regex_module.c.o
+
+lib/regex_module.i: lib/regex_module.c.i
+.PHONY : lib/regex_module.i
+
+# target to preprocess a source file
+lib/regex_module.c.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/lib/regex_module.c.i
+.PHONY : lib/regex_module.c.i
+
+lib/regex_module.s: lib/regex_module.c.s
+.PHONY : lib/regex_module.s
+
+# target to generate assembly for a file
+lib/regex_module.c.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/lib/regex_module.c.s
+.PHONY : lib/regex_module.c.s
+
+lib/sha256.o: lib/sha256.c.o
+.PHONY : lib/sha256.o
+
+# target to build an object file
+lib/sha256.c.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/lib/sha256.c.o
+.PHONY : lib/sha256.c.o
+
+lib/sha256.i: lib/sha256.c.i
+.PHONY : lib/sha256.i
+
+# target to preprocess a source file
+lib/sha256.c.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/lib/sha256.c.i
+.PHONY : lib/sha256.c.i
+
+lib/sha256.s: lib/sha256.c.s
+.PHONY : lib/sha256.s
+
+# target to generate assembly for a file
+lib/sha256.c.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/lib/sha256.c.s
+.PHONY : lib/sha256.c.s
+
+lib/sys_module.o: lib/sys_module.c.o
+.PHONY : lib/sys_module.o
+
+# target to build an object file
+lib/sys_module.c.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/lib/sys_module.c.o
+.PHONY : lib/sys_module.c.o
+
+lib/sys_module.i: lib/sys_module.c.i
+.PHONY : lib/sys_module.i
+
+# target to preprocess a source file
+lib/sys_module.c.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/lib/sys_module.c.i
+.PHONY : lib/sys_module.c.i
+
+lib/sys_module.s: lib/sys_module.c.s
+.PHONY : lib/sys_module.s
+
+# target to generate assembly for a file
+lib/sys_module.c.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/lib/sys_module.c.s
+.PHONY : lib/sys_module.c.s
+
+lib/time_module.o: lib/time_module.c.o
+.PHONY : lib/time_module.o
+
+# target to build an object file
+lib/time_module.c.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/lib/time_module.c.o
+.PHONY : lib/time_module.c.o
+
+lib/time_module.i: lib/time_module.c.i
+.PHONY : lib/time_module.i
+
+# target to preprocess a source file
+lib/time_module.c.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/lib/time_module.c.i
+.PHONY : lib/time_module.c.i
+
+lib/time_module.s: lib/time_module.c.s
+.PHONY : lib/time_module.s
+
+# target to generate assembly for a file
+lib/time_module.c.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/lib/time_module.c.s
+.PHONY : lib/time_module.c.s
+
 main.o: main.c.o
 .PHONY : main.o
 
@@ -201,6 +558,30 @@ main.c.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/main.c.s
 .PHONY : main.c.s
 
+native_object.o: native_object.c.o
+.PHONY : native_object.o
+
+# target to build an object file
+native_object.c.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/native_object.c.o
+.PHONY : native_object.c.o
+
+native_object.i: native_object.c.i
+.PHONY : native_object.i
+
+# target to preprocess a source file
+native_object.c.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/native_object.c.i
+.PHONY : native_object.c.i
+
+native_object.s: native_object.c.s
+.PHONY : native_object.s
+
+# target to generate assembly for a file
+native_object.c.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/native_object.c.s
+.PHONY : native_object.c.s
+
 parser.o: parser.c.o
 .PHONY : parser.o
 
@@ -224,6 +605,30 @@ parser.s: parser.c.s
 parser.c.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/parser.c.s
 .PHONY : parser.c.s
+
+pith_string.o: pith_string.c.o
+.PHONY : pith_string.o
+
+# target to build an object file
+pith_string.c.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/pith_string.c.o
+.PHONY : pith_string.c.o
+
+pith_string.i: pith_string.c.i
+.PHONY : pith_string.i
+
+# target to preprocess a source file
+pith_string.c.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/pith_string.c.i
+.PHONY : pith_string.c.i
+
+pith_string.s: pith_string.c.s
+.PHONY : pith_string.s
+
+# target to generate assembly for a file
+pith_string.c.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/pith_string.c.s
+.PHONY : pith_string.c.s
 
 repl.o: repl.c.o
 .PHONY : repl.o
@@ -297,6 +702,30 @@ tokenizer.c.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/tokenizer.c.s
 .PHONY : tokenizer.c.s
 
+types.o: types.c.o
+.PHONY : types.o
+
+# target to build an object file
+types.c.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/types.c.o
+.PHONY : types.c.o
+
+types.i: types.c.i
+.PHONY : types.i
+
+# target to preprocess a source file
+types.c.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/types.c.i
+.PHONY : types.c.i
+
+types.s: types.c.s
+.PHONY : types.s
+
+# target to generate assembly for a file
+types.c.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/types.c.s
+.PHONY : types.c.s
+
 # Help Target
 help:
 	@echo "The following are some of the valid targets for this Makefile:"
@@ -304,20 +733,66 @@ help:
 	@echo "... clean"
 	@echo "... depend"
 	@echo "... edit_cache"
+	@echo "... install"
+	@echo "... install/local"
+	@echo "... install/strip"
+	@echo "... list_install_components"
+	@echo "... package"
+	@echo "... package_source"
 	@echo "... rebuild_cache"
+	@echo "... uninstall"
+	@echo "... update_mappings"
+	@echo "... glfw"
 	@echo "... pith_lang"
+	@echo "... raylib"
 	@echo "... gc.o"
 	@echo "... gc.i"
 	@echo "... gc.s"
 	@echo "... interpreter.o"
 	@echo "... interpreter.i"
 	@echo "... interpreter.s"
+	@echo "... lib/crypto_module.o"
+	@echo "... lib/crypto_module.i"
+	@echo "... lib/crypto_module.s"
+	@echo "... lib/encoding_module.o"
+	@echo "... lib/encoding_module.i"
+	@echo "... lib/encoding_module.s"
+	@echo "... lib/gui.o"
+	@echo "... lib/gui.i"
+	@echo "... lib/gui.s"
+	@echo "... lib/http_module.o"
+	@echo "... lib/http_module.i"
+	@echo "... lib/http_module.s"
+	@echo "... lib/io_module.o"
+	@echo "... lib/io_module.i"
+	@echo "... lib/io_module.s"
+	@echo "... lib/json_module.o"
+	@echo "... lib/json_module.i"
+	@echo "... lib/json_module.s"
+	@echo "... lib/regex_module.o"
+	@echo "... lib/regex_module.i"
+	@echo "... lib/regex_module.s"
+	@echo "... lib/sha256.o"
+	@echo "... lib/sha256.i"
+	@echo "... lib/sha256.s"
+	@echo "... lib/sys_module.o"
+	@echo "... lib/sys_module.i"
+	@echo "... lib/sys_module.s"
+	@echo "... lib/time_module.o"
+	@echo "... lib/time_module.i"
+	@echo "... lib/time_module.s"
 	@echo "... main.o"
 	@echo "... main.i"
 	@echo "... main.s"
+	@echo "... native_object.o"
+	@echo "... native_object.i"
+	@echo "... native_object.s"
 	@echo "... parser.o"
 	@echo "... parser.i"
 	@echo "... parser.s"
+	@echo "... pith_string.o"
+	@echo "... pith_string.i"
+	@echo "... pith_string.s"
 	@echo "... repl.o"
 	@echo "... repl.i"
 	@echo "... repl.s"
@@ -327,6 +802,9 @@ help:
 	@echo "... tokenizer.o"
 	@echo "... tokenizer.i"
 	@echo "... tokenizer.s"
+	@echo "... types.o"
+	@echo "... types.i"
+	@echo "... types.s"
 .PHONY : help
 
 

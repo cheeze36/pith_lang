@@ -16,6 +16,7 @@
  */
 
 #include "resolver.h"
+#include "types.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -39,14 +40,19 @@ typedef struct RFunction
     int count; // Number of entries currently in scope.
     int block_level; // Current block-nesting depth.
     int next_slot; // Next free frame slot (monotonic).
+    TypeSpec **slot_types; // Declared type of every slot assigned so far (grows with next_slot).
+    int slot_types_capacity;
 } RFunction;
 
 static void resolve(ASTNode *node, RFunction *fn);
 
 /**
  * @brief Declares a local in the current block of `fn` and returns its slot.
+ *
+ * @param type The local's declared type (NULL = untyped), recorded per slot so
+ *        the interpreter can check assignments to it.
  */
-static int declare_local(RFunction *fn, const char *name)
+static int declare_local(RFunction *fn, const char *name, TypeSpec *type)
 {
     if (fn->count >= MAX_LOCALS)
     {
@@ -54,6 +60,12 @@ static int declare_local(RFunction *fn, const char *name)
         exit(1);
     }
     int slot = fn->next_slot++;
+    if (slot >= fn->slot_types_capacity)
+    {
+        fn->slot_types_capacity = fn->slot_types_capacity == 0 ? 16 : fn->slot_types_capacity * 2;
+        fn->slot_types = realloc(fn->slot_types, sizeof(TypeSpec *) * (size_t) fn->slot_types_capacity);
+    }
+    fn->slot_types[slot] = type;
     fn->names[fn->count] = name;
     fn->slots[fn->count] = slot;
     fn->levels[fn->count] = fn->block_level;
@@ -107,29 +119,34 @@ static void end_block(RFunction *fn)
  *
  * @param func_node The AST_FUNC_DEF node.
  * @param parent Enclosing function scope (NULL for top-level/method definitions).
- * @param is_method Non-zero to reserve slot 0 for the implicit `this` receiver.
+ * @param this_type For methods, the class type of the implicit `this` receiver
+ *        (reserved as slot 0); NULL for plain functions.
  */
-static void resolve_function(ASTNode *func_node, RFunction *parent, int is_method)
+static void resolve_function(ASTNode *func_node, RFunction *parent, TypeSpec *this_type)
 {
     RFunction fn;
     fn.parent = parent;
     fn.count = 0;
     fn.block_level = 0;
     fn.next_slot = 0;
+    fn.slot_types = NULL;
+    fn.slot_types_capacity = 0;
 
     // Slot layout must match how the interpreter's call sites fill the frame:
     // `this` first (methods only), then declared parameters in order, then the
     // body's locals.
-    if (is_method)
-        declare_local(&fn, "this");
+    if (this_type)
+        declare_local(&fn, "this", this_type);
     for (int i = 0; i < func_node->arg_count; i++)
-        declare_local(&fn, func_node->args[i]);
+        declare_local(&fn, func_node->args[i], func_node->arg_types ? func_node->arg_types[i] : NULL);
 
     // The body is the function's block (children[0]); resolve its statements.
     if (func_node->children_count > 0)
         resolve(func_node->children[0], &fn);
 
     func_node->frame_slots = fn.next_slot;
+    free(func_node->slot_types); // Re-resolving (e.g. in the REPL) replaces the table.
+    func_node->slot_types = fn.slot_types;
 }
 
 /**
@@ -148,7 +165,7 @@ static void resolve(ASTNode *node, RFunction *fn)
             // A top-level/nested function definition. Its name is bound by the
             // interpreter (globally, or as a local for a nested def); here we only
             // resolve the body as a new function scope.
-            resolve_function(node, fn, 0);
+            resolve_function(node, fn, NULL);
             return;
 
         case AST_CLASS_DEF:
@@ -157,7 +174,7 @@ static void resolve(ASTNode *node, RFunction *fn)
             {
                 ASTNode *child = node->children[i];
                 if (child->type == AST_FUNC_DEF)
-                    resolve_function(child, fn, 1);
+                    resolve_function(child, fn, type_from_name(node->value));
             }
             return;
 
@@ -170,7 +187,7 @@ static void resolve(ASTNode *node, RFunction *fn)
             {
                 node->is_local = 1;
                 node->var_depth = 0;
-                node->var_slot = declare_local(fn, node->value);
+                node->var_slot = declare_local(fn, node->value, node->type_spec);
             }
             else
             {
@@ -203,7 +220,7 @@ static void resolve(ASTNode *node, RFunction *fn)
                 begin_block(fn);
                 node->is_local = 1;
                 node->var_depth = 0;
-                node->var_slot = declare_local(fn, node->value);
+                node->var_slot = declare_local(fn, node->value, node->type_spec);
             }
             else
             {
@@ -211,6 +228,27 @@ static void resolve(ASTNode *node, RFunction *fn)
             }
             if (node->children_count > 1)
                 resolve(node->children[1], fn);
+            if (fn)
+                end_block(fn);
+            return;
+
+        case AST_RESCUE:
+            // value = error variable (may be NULL), children[0] = handler block.
+            // Like a foreach variable, the error variable is scoped to the handler.
+            if (fn)
+                begin_block(fn);
+            if (node->value && fn)
+            {
+                node->is_local = 1;
+                node->var_depth = 0;
+                node->var_slot = declare_local(fn, node->value, type_from_name("string")); // error message
+            }
+            else
+            {
+                node->is_local = 0;
+            }
+            if (node->children_count > 0)
+                resolve(node->children[0], fn);
             if (fn)
                 end_block(fn);
             return;

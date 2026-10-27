@@ -1,0 +1,48 @@
+# gui_demo.pith
+#
+# A small demo of the optional `gui` module (raylib + raygui).
+#
+# Build the interpreter with the GUI enabled, then run this file:
+#     cmake -DPITH_ENABLE_GUI=ON -S . -B build && cmake --build build
+#     ./build/pith_lang examples/gui_demo.pith
+#
+# The gui module is immediate-mode: every frame you redraw the whole UI by
+# calling the widgets you want. A widget call both draws the widget and returns
+# what the user did with it, so there are no callbacks to register.
+
+import "gui"
+import "integer"   # for integer.toString() used below
+
+# Open a 420x260 window.
+gui.init(420, 260, "Pith GUI Demo")
+gui.set_fps(60)
+
+# UI state lives in ordinary Pith variables. Immediate-mode widgets take the
+# current value and hand back the (possibly changed) new value each frame.
+int clicks = 0
+bool enabled = true
+float volume = 50.0
+
+# Main loop: run until the user closes the window or presses Escape.
+while (!gui.should_close()):
+    gui.begin()
+    gui.clear(240, 240, 245)
+
+    gui.text(20, 16, "Hello from Pith!", 20, 30, 30, 30)
+
+    # button() returns true on the frame it is clicked.
+    if (gui.button(20, 60, 140, 32, "Click me")):
+        clicks = clicks + 1
+
+    gui.label(180, 66, 200, 24, "Clicks: " + integer.toString(clicks))
+
+    # checkbox() / slider() follow the "pass current, take back new" idiom.
+    enabled = gui.checkbox(20, 110, 22, "Enabled", enabled)
+    volume = gui.slider(20, 150, 180, 18, volume, 0.0, 100.0)
+
+    gui.label(220, 148, 200, 24, "Volume set")
+
+    gui.end()
+
+gui.close()
+print("Window closed. Total clicks: " + integer.toString(clicks))

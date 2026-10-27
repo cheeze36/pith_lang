@@ -9,10 +9,12 @@
  */
 
 #include "parser.h"
+#include "types.h" // type_from_name() for declared types
 #include "debug.h"
 #include "common.h"
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 #include <stdio.h>
 
 // --- Forward Declarations ---
@@ -79,6 +81,9 @@ ASTNode *create_node(ASTNodeType type, const char *value, int line_num)
     node->value = value ? strdup(value) : NULL;
     node->type_name = NULL;
     node->parent_class_name = NULL;
+    node->type_spec = NULL; // Interned (see types.c); never freed with the AST.
+    node->arg_types = NULL;
+    node->slot_types = NULL;
     node->children = NULL;
     node->children_count = 0;
     node->args = NULL;
@@ -101,7 +106,14 @@ ASTNode *create_node(ASTNodeType type, const char *value, int line_num)
             node->op = resolve_op(value);
             break;
         case AST_INT_LITERAL:
-            node->int_value = value ? strtol(value, NULL, 10) : 0;
+            if (value)
+            {
+                // Literals are 64-bit; one that does not fit is a syntax error.
+                errno = 0;
+                node->int_value = strtoll(value, NULL, 10);
+                if (errno == ERANGE)
+                    report_error(line_num, "Integer literal %s is too large (max 9223372036854775807).", value);
+            }
             break;
         case AST_FLOAT_LITERAL:
             node->float_value = value ? strtod(value, NULL) : 0.0;
@@ -192,6 +204,8 @@ void free_ast(ASTNode *node)
         free(node->type_name);
     if (node->parent_class_name)
         free(node->parent_class_name);
+    free(node->arg_types); // The TypeSpecs they point to are interned, not owned.
+    free(node->slot_types);
 
     if (node->children)
     {
@@ -261,6 +275,50 @@ int match(ParserState *state, TokenType type)
 ASTNode *parse_call(ParserState *state);
 
 /**
+ * @brief Parses a type as written in a declaration and returns its canonical
+ *        spelling: "int", "Point", "list<int>", "map<string,list<float>>", ...
+ *
+ * @param state The current parser state (positioned at the type's first token).
+ * @return A malloc'd string; the caller owns it.
+ */
+static char *parse_type_name(ParserState *state)
+{
+    Token base = advance(state);
+    if (peek(state).type != TOKEN_LT)
+        return strdup(base.value);
+
+    advance(state); // '<'
+    char *first = parse_type_name(state);
+    char *second = NULL;
+    if (match(state, TOKEN_COMMA))
+        second = parse_type_name(state);
+    match(state, TOKEN_GT);
+
+    size_t size = strlen(base.value) + strlen(first) + (second ? strlen(second) : 0) + 4;
+    char *full = malloc(size);
+    if (second)
+        snprintf(full, size, "%s<%s,%s>", base.value, first, second);
+    else
+        snprintf(full, size, "%s<%s>", base.value, first);
+    free(first);
+    free(second);
+    return full;
+}
+
+/**
+ * @brief True if the tokens at the current position start a typed name, i.e.
+ *        `Type name` or `Generic<...> name` (used for parameters).
+ */
+static int at_typed_name(ParserState *state)
+{
+    Token *tokens = state->tokenizer_state->tokens;
+    int i = state->current_token;
+    if (tokens[i].type != TOKEN_KEYWORD && tokens[i].type != TOKEN_IDENTIFIER)
+        return 0;
+    return tokens[i + 1].type == TOKEN_IDENTIFIER || tokens[i + 1].type == TOKEN_LT;
+}
+
+/**
  * @brief Parses primary expressions.
  *
  * Handles literals (numbers, strings, booleans), identifiers, parenthesized expressions,
@@ -300,12 +358,31 @@ ASTNode *parse_primary(ParserState *state)
     if (t.type == TOKEN_STRING)
     {
         advance(state);
-        return create_node(AST_STRING_LITERAL, t.value, t.line_num);
+        // create_node() copies with strdup(), which would stop at an embedded NUL
+        // (e.g. "a\0b"); copy the literal's full byte length instead.
+        ASTNode *node = create_node(AST_STRING_LITERAL, NULL, t.line_num);
+        node->value = malloc((size_t) t.length + 1);
+        memcpy(node->value, t.value, (size_t) t.length + 1);
+        node->int_value = t.length;
+        return node;
     }
     if (t.type == TOKEN_KEYWORD && (strcmp(t.value, "true") == 0 || strcmp(t.value, "false") == 0))
     {
         advance(state);
         return create_node(AST_BOOL_LITERAL, t.value, t.line_num);
+    }
+    if (t.type == TOKEN_KEYWORD && strcmp(t.value, "void") == 0)
+    {
+        advance(state);
+        return create_node(AST_VOID_LITERAL, NULL, t.line_num);
+    }
+    // The conversion functions int(x) / float(x) share their names with the type
+    // keywords; followed by '(' they are calls to the native functions.
+    if (t.type == TOKEN_KEYWORD && (strcmp(t.value, "int") == 0 || strcmp(t.value, "float") == 0) &&
+        state->tokenizer_state->tokens[state->current_token + 1].type == TOKEN_LPAREN)
+    {
+        advance(state);
+        return create_node(AST_VAR_REF, t.value, t.line_num);
     }
 
     // Handle variable references
@@ -404,16 +481,38 @@ ASTNode *parse_call(ParserState *state)
             add_child(access, expr);
             expr = access;
         }
-        // Index access: expr[index]
+        // Index access expr[index], or slice expr[start:end] (either bound optional)
         else if (peek(state).type == TOKEN_LBRACKET)
         {
             Token t = advance(state);
-            ASTNode *index = parse_expression(state);
-            match(state, TOKEN_RBRACKET);
-            ASTNode *access = create_node(AST_INDEX_ACCESS, NULL, t.line_num);
-            add_child(access, expr);
-            add_child(access, index);
-            expr = access;
+            ASTNode *start = NULL;
+            if (peek(state).type != TOKEN_COLON)
+                start = parse_expression(state);
+
+            if (peek(state).type == TOKEN_COLON)
+            {
+                advance(state);
+                ASTNode *end = NULL;
+                if (peek(state).type != TOKEN_RBRACKET)
+                    end = parse_expression(state);
+                match(state, TOKEN_RBRACKET);
+                ASTNode *slice = create_node(AST_SLICE, NULL, t.line_num);
+                add_child(slice, expr);
+                add_child(slice, start);
+                add_child(slice, end);
+                slice->int_value = (start ? SLICE_HAS_START : 0) | (end ? SLICE_HAS_END : 0);
+                expr = slice;
+            }
+            else
+            {
+                if (start == NULL)
+                    report_error(t.line_num, "Expected an index or slice inside '[ ]'.");
+                match(state, TOKEN_RBRACKET);
+                ASTNode *access = create_node(AST_INDEX_ACCESS, NULL, t.line_num);
+                add_child(access, expr);
+                add_child(access, start);
+                expr = access;
+            }
         }
         else
         {
@@ -614,6 +713,8 @@ ASTNode *parse_logic_or(ParserState *state)
  */
 ASTNode *parse_expression(ParserState *state)
 {
+    // Deeply nested source (e.g. thousands of parentheses) recurses here.
+    check_stack_space(peek(state).line_num);
 #ifdef DEBUG_TRACE_PARSER
     printf("[PARSER] Parsing expression\n");
 #endif
@@ -675,37 +776,40 @@ ASTNode *parse_function_definition(ParserState *state)
     advance(state); // consume 'define'
     Token name;
 
-    // Check if return type is specified
+    // Optional return type: `define name(...)` or `define Type name(...)`.
+    char *return_type = NULL;
     if (state->tokenizer_state->tokens[state->current_token + 1].type == TOKEN_LPAREN)
     {
         name = advance(state);
     }
     else
     {
-        advance(state); // consume return type (ignored for now in AST construction)
-        // Handle generic return types like list[int]
-        if (peek(state).type == TOKEN_LBRACKET)
-        {
-            advance(state);
-            match(state, TOKEN_RBRACKET);
-        }
+        return_type = parse_type_name(state);
         name = advance(state);
     }
 
     match(state, TOKEN_LPAREN);
     ASTNode *func = create_node(AST_FUNC_DEF, name.value, name.line_num);
+    func->type_name = return_type;
+    func->type_spec = type_from_name(return_type);
 
     // Parse arguments
     if (peek(state).type != TOKEN_RPAREN)
     {
         do
         {
-            if (state->tokenizer_state->tokens[state->current_token + 1].type == TOKEN_IDENTIFIER)
+            // Parameters may be typed (`int n`, `list<string> names`) or untyped (`n`).
+            TypeSpec *arg_type = NULL;
+            if (at_typed_name(state))
             {
-                advance(state); // consume type (ignored for now)
+                char *type_name = parse_type_name(state);
+                arg_type = type_from_name(type_name);
+                free(type_name);
             }
             Token arg_name = advance(state);
             add_arg(func, arg_name.value);
+            func->arg_types = realloc(func->arg_types, sizeof(TypeSpec *) * (size_t) func->arg_count);
+            func->arg_types[func->arg_count - 1] = arg_type;
         }
         while (match(state, TOKEN_COMMA));
     }
@@ -727,6 +831,7 @@ ASTNode *parse_function_definition(ParserState *state)
  */
 ASTNode *parse_statement(ParserState *state)
 {
+    check_stack_space(peek(state).line_num); // Deeply nested blocks recurse here.
 #ifdef DEBUG_TRACE_PARSER
     printf("[PARSER] Parsing statement\n");
 #endif
@@ -797,43 +902,23 @@ ASTNode *parse_statement(ParserState *state)
 #ifdef DEBUG_TRACE_PARSER
                     printf("[PARSER_DEBUG] Found field declaration\n");
 #endif
-                    Token type_name = advance(state);
-                    char *full_type_name = strdup(type_name.value);
+                    char *full_type_name = parse_type_name(state);
 
-                    // Handle generic types (e.g., list<string>)
-                    if ((strcmp(type_name.value, "list") == 0 || strcmp(type_name.value, "map") == 0) && peek(state).
-                        type == TOKEN_LT)
-                    {
-                        match(state, TOKEN_LT);
-                        Token inner_type1 = advance(state);
-                        if (match(state, TOKEN_COMMA))
-                        {
-                            Token inner_type2 = advance(state);
-                            match(state, TOKEN_GT);
-                            char buffer[128];
-                            snprintf(buffer, sizeof(buffer), "map<%s,%s>", inner_type1.value, inner_type2.value);
-                            free(full_type_name);
-                            full_type_name = strdup(buffer);
-                        }
-                        else
-                        {
-                            match(state, TOKEN_GT);
-                            char buffer[64];
-                            snprintf(buffer, sizeof(buffer), "list<%s>", inner_type1.value);
-                            free(full_type_name);
-                            full_type_name = strdup(buffer);
-                        }
-                    }
-
-                    // Optional: handle array types like 'int[]' if needed
+                    // `int[] values` declares a list of that element type.
                     if (peek(state).type == TOKEN_LBRACKET)
                     {
                         advance(state);
                         match(state, TOKEN_RBRACKET);
+                        size_t size = strlen(full_type_name) + 7;
+                        char *list_type = malloc(size);
+                        snprintf(list_type, size, "list<%s>", full_type_name);
+                        free(full_type_name);
+                        full_type_name = list_type;
                     }
                     Token field_name = advance(state);
                     ASTNode *field_node = create_node(AST_FIELD_DECL, field_name.value, field_name.line_num);
                     field_node->type_name = full_type_name;
+                    field_node->type_spec = type_from_name(full_type_name);
                     add_child(class_node, field_node);
                 }
             }
@@ -876,35 +961,10 @@ ASTNode *parse_statement(ParserState *state)
     // --- Variable Declaration (Explicit Type) ---
     else if (t.type == TOKEN_KEYWORD && (strcmp(t.value, "int") == 0 || strcmp(t.value, "string") == 0 ||
                                          strcmp(t.value, "float") == 0 || strcmp(t.value, "bool") == 0 ||
-                                         strcmp(t.value, "map") == 0 || strcmp(t.value, "list") == 0))
+                                         strcmp(t.value, "map") == 0 || strcmp(t.value, "list") == 0) &&
+             state->tokenizer_state->tokens[state->current_token + 1].type != TOKEN_LPAREN)
     {
-        Token type_name = advance(state);
-        char *full_type_name = strdup(type_name.value);
-
-        // Handle generics for list and map
-        if ((strcmp(type_name.value, "list") == 0 || strcmp(type_name.value, "map") == 0) && peek(state).type ==
-            TOKEN_LT)
-        {
-            match(state, TOKEN_LT);
-            Token inner_type1 = advance(state);
-            if (match(state, TOKEN_COMMA))
-            {
-                Token inner_type2 = advance(state);
-                match(state, TOKEN_GT);
-                char buffer[128];
-                snprintf(buffer, sizeof(buffer), "map<%s,%s>", inner_type1.value, inner_type2.value);
-                free(full_type_name);
-                full_type_name = strdup(buffer);
-            }
-            else
-            {
-                match(state, TOKEN_GT);
-                char buffer[64];
-                snprintf(buffer, sizeof(buffer), "list<%s>", inner_type1.value);
-                free(full_type_name);
-                full_type_name = strdup(buffer);
-            }
-        }
+        char *full_type_name = parse_type_name(state);
 
         ASTNode *array_spec = NULL;
         if (peek(state).type == TOKEN_LBRACKET)
@@ -922,7 +982,17 @@ ASTNode *parse_statement(ParserState *state)
         ASTNode *node = create_node(AST_VAR_DECL, name.value, name.line_num);
         node->type_name = full_type_name;
         if (array_spec)
+        {
+            // `int[5] a` / `int[] a`: the variable is a list of the written type.
+            char list_type[300];
+            snprintf(list_type, sizeof(list_type), "list<%s>", full_type_name);
+            node->type_spec = type_from_name(list_type);
             add_child(node, array_spec);
+        }
+        else
+        {
+            node->type_spec = type_from_name(full_type_name);
+        }
         if (match(state, TOKEN_ASSIGN))
         {
             add_child(node, parse_expression(state));
@@ -937,14 +1007,10 @@ ASTNode *parse_statement(ParserState *state)
         Token var_name = advance(state);
         ASTNode *node = create_node(AST_VAR_DECL, var_name.value, var_name.line_num);
         node->type_name = strdup(type_name.value);
+        node->type_spec = type_from_name(type_name.value);
+        // Without an initializer the variable starts as void ("no object").
         if (match(state, TOKEN_ASSIGN))
-        {
             add_child(node, parse_expression(state));
-        }
-        else
-        {
-            add_child(node, create_node(AST_VAR_REF, type_name.value, type_name.line_num));
-        }
         return node;
     }
     // --- If Statement ---
@@ -990,7 +1056,7 @@ ASTNode *parse_statement(ParserState *state)
         advance(state);
         match(state, TOKEN_LPAREN);
 
-        Token type_name = advance(state);
+        char *loop_type = parse_type_name(state);
         Token var_name = advance(state);
 
         if (peek(state).type != TOKEN_KEYWORD || strcmp(peek(state).value, "in") != 0)
@@ -1003,7 +1069,8 @@ ASTNode *parse_statement(ParserState *state)
         match(state, TOKEN_RPAREN);
 
         ASTNode *for_node = create_node(AST_FOREACH, var_name.value, t.line_num);
-        for_node->type_name = strdup(type_name.value);
+        for_node->type_name = loop_type;
+        for_node->type_spec = type_from_name(loop_type);
         add_child(for_node, collection);
         add_child(for_node, parse_block(state));
         return for_node;
@@ -1094,6 +1161,68 @@ ASTNode *parse_statement(ParserState *state)
         }
         match(state, TOKEN_DEDENT);
         return switch_node;
+    }
+    // --- Try / Rescue / Else / Finally ---
+    // try:
+    //     body
+    // rescue e:          (or `rescue:` to ignore the message)
+    //     handler
+    // else:              (runs only if body raised nothing)
+    //     ...
+    // finally:           (always runs)
+    //     ...
+    else if (t.type == TOKEN_KEYWORD && strcmp(t.value, "try") == 0)
+    {
+        advance(state);
+        ASTNode *node = create_node(AST_TRY, NULL, t.line_num);
+        ASTNode *body = parse_block(state);
+
+        ASTNode *rescue = NULL;
+        if (peek(state).type == TOKEN_KEYWORD && strcmp(peek(state).value, "rescue") == 0)
+        {
+            Token rescue_token = advance(state);
+            char *var_name = NULL;
+            if (peek(state).type == TOKEN_IDENTIFIER)
+                var_name = advance(state).value;
+            rescue = create_node(AST_RESCUE, var_name, rescue_token.line_num);
+            rescue->type_spec = type_from_name("string"); // The error message.
+            add_child(rescue, parse_block(state));
+        }
+
+        // Absent else/finally clauses become empty blocks, which behave identically.
+        ASTNode *else_block = NULL;
+        if (peek(state).type == TOKEN_KEYWORD && strcmp(peek(state).value, "else") == 0)
+        {
+            Token else_token = advance(state);
+            if (rescue == NULL)
+                report_error(else_token.line_num, "'else' in a try statement requires a 'rescue' clause.");
+            else_block = parse_block(state);
+        }
+
+        ASTNode *finally_block = NULL;
+        if (peek(state).type == TOKEN_KEYWORD && strcmp(peek(state).value, "finally") == 0)
+        {
+            advance(state);
+            finally_block = parse_block(state);
+        }
+
+        if (rescue == NULL && finally_block == NULL)
+            report_error(t.line_num, "'try' needs at least one 'rescue' or 'finally' clause.");
+
+        add_child(node, body);
+        add_child(node, else_block ? else_block : create_node(AST_BLOCK, NULL, t.line_num));
+        add_child(node, finally_block ? finally_block : create_node(AST_BLOCK, NULL, t.line_num));
+        if (rescue)
+            add_child(node, rescue);
+        return node;
+    }
+    // --- Raise Statement ---
+    else if (t.type == TOKEN_KEYWORD && strcmp(t.value, "raise") == 0)
+    {
+        advance(state);
+        ASTNode *node = create_node(AST_RAISE, NULL, t.line_num);
+        add_child(node, parse_expression(state));
+        return node;
     }
     // --- Return Statement ---
     else if (t.type == TOKEN_KEYWORD && strcmp(t.value, "return") == 0)

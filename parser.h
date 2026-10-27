@@ -11,6 +11,8 @@
 
 #include "tokenizer.h"
 
+typedef struct TypeSpec TypeSpec; // Declared types; see types.h
+
 /**
  * @brief Enumeration of all possible AST node types.
  */
@@ -49,7 +51,12 @@ typedef enum
     AST_LIST_LITERAL, // List literal ([1, 2, 3])
     AST_INDEX_ACCESS, // Index access (list[0])
     AST_ARRAY_SPECIFIER, // Array size specifier (int[5])
-    AST_HASHMAP_LITERAL // Hashmap literal ({ "a": 1 })
+    AST_HASHMAP_LITERAL, // Hashmap literal ({ "a": 1 })
+    AST_TRY, // try/rescue/else/finally; children: body, else block, finally block[, AST_RESCUE]
+    AST_RESCUE, // rescue clause; value = error variable name (or NULL), children[0] = block
+    AST_RAISE, // raise statement; children[0] = message expression
+    AST_SLICE, // Slice (s[a:b]); children: collection[, start][, end]; int_value flags SLICE_HAS_*
+    AST_VOID_LITERAL // The `void` value ("no object"), e.g. `if (next == void)`
 } ASTNodeType;
 
 /**
@@ -82,6 +89,10 @@ typedef enum
     OP_NOT // !  (unary)
 } OpCode;
 
+// AST_SLICE flags (stored in int_value): which optional bounds were written.
+#define SLICE_HAS_START 1
+#define SLICE_HAS_END 2
+
 /**
  * @brief Structure representing a node in the Abstract Syntax Tree.
  */
@@ -101,7 +112,8 @@ typedef struct ASTNode
     // These let the interpreter avoid re-parsing literals and re-matching operator
     // strings on every single evaluation of a node.
     OpCode op; // Resolved operator for AST_BINARY_OP / AST_UNARY_OP; OP_NONE otherwise.
-    long int_value; // Parsed value for AST_INT_LITERAL and AST_BOOL_LITERAL (0/1).
+    long long int_value; // AST_INT_LITERAL/AST_BOOL_LITERAL value; AST_STRING_LITERAL byte length;
+                    // AST_SLICE SLICE_HAS_* flags.
     double float_value; // Parsed value for AST_FLOAT_LITERAL.
 
     // --- Variable resolution (populated by the resolver pass, see resolver.c) ---
@@ -111,6 +123,13 @@ typedef struct ASTNode
     int var_slot; // Slot index within that frame.
     // For AST_FUNC_DEF: the number of slots its activation frame needs.
     int frame_slots;
+
+    // --- Declared types (see types.h) ---
+    // AST_VAR_DECL / AST_FIELD_DECL / AST_FOREACH: the declared type (from type_name).
+    // AST_FUNC_DEF: the declared return type (from type_name); NULL = untyped.
+    TypeSpec *type_spec;
+    TypeSpec **arg_types; // AST_FUNC_DEF: declared type of each parameter (NULL = untyped).
+    TypeSpec **slot_types; // AST_FUNC_DEF: declared type of each frame slot (set by the resolver).
 } ASTNode;
 
 /**

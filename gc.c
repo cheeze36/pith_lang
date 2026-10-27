@@ -9,6 +9,7 @@
 
 #include "gc.h"
 #include "interpreter.h"
+#include "native_object.h"
 #include <stdlib.h>
 #include <stdio.h>
 
@@ -16,9 +17,13 @@
 ObjHeader *objects = NULL;
 
 // --- Temporary Root Stack ---
-// Used to protect objects from GC while they are being constructed or used on the C stack.
-#define MAX_TEMP_ROOTS 256
-ObjHeader *temp_roots[MAX_TEMP_ROOTS];
+// Protects objects that are only referenced from the C stack: objects under
+// construction, and intermediate values during evaluation (the left operand of
+// a binary operator, call arguments, ...). It grows on demand because deep Pith
+// recursion keeps a few entries alive per active call.
+// The push/pop fast paths are inline functions in gc.h.
+ObjHeader **temp_roots = NULL;
+int temp_root_capacity = 0;
 int temp_root_count = 0;
 
 // --- Active Environment Root Stack ---
@@ -30,6 +35,13 @@ int temp_root_count = 0;
 Env **env_roots[MAX_ENV_ROOTS];
 int env_root_count = 0;
 
+// --- Registered Value Roots ---
+// Addresses of C globals that hold Pith values (e.g. the http module's route
+// handlers). Registered once and marked on every collection.
+#define MAX_VALUE_ROOTS 64
+static Value *value_roots[MAX_VALUE_ROOTS];
+static int value_root_count = 0;
+
 // --- Allocation Tracking ---
 size_t bytes_allocated = 0;
 size_t next_gc_threshold = 1024 * 1024; // Start at 1MB
@@ -39,22 +51,15 @@ void mark_object(ObjHeader *obj);
 
 void mark_value(Value v);
 
-/**
- * @brief Pushes an object onto the temporary root stack.
- *
- * This protects the object from being collected during a GC cycle that might occur
- * before the object is linked into the main object graph (e.g., during complex object creation).
- *
- * @param obj The object to protect.
- */
-void gc_push_root(ObjHeader *obj)
+void gc_grow_temp_roots(void)
 {
-    if (temp_root_count >= MAX_TEMP_ROOTS)
+    temp_root_capacity = temp_root_capacity == 0 ? 256 : temp_root_capacity * 2;
+    temp_roots = realloc(temp_roots, sizeof(ObjHeader *) * (size_t) temp_root_capacity);
+    if (temp_roots == NULL)
     {
-        fprintf(stderr, "Fatal: GC temp root stack overflow.\n");
+        fprintf(stderr, "Fatal: Out of memory (GC temp root stack).\n");
         exit(1);
     }
-    temp_roots[temp_root_count++] = obj;
 }
 
 /**
@@ -96,6 +101,16 @@ void gc_pop_env_root()
     }
 }
 
+void gc_register_value_root(Value *slot)
+{
+    if (value_root_count >= MAX_VALUE_ROOTS)
+    {
+        fprintf(stderr, "Fatal: too many registered GC value roots.\n");
+        exit(1);
+    }
+    value_roots[value_root_count++] = slot;
+}
+
 void gc_reset_roots(void)
 {
     // The REPL recovers from errors with longjmp, which unwinds the C stack
@@ -104,6 +119,20 @@ void gc_reset_roots(void)
     // clean state at the REPL's recovery point before the next command runs.
     temp_root_count = 0;
     env_root_count = 0;
+}
+
+GcRootSnapshot gc_root_snapshot(void)
+{
+    GcRootSnapshot snapshot;
+    snapshot.temp_root_count = temp_root_count;
+    snapshot.env_root_count = env_root_count;
+    return snapshot;
+}
+
+void gc_restore_root_snapshot(GcRootSnapshot snapshot)
+{
+    temp_root_count = snapshot.temp_root_count;
+    env_root_count = snapshot.env_root_count;
 }
 
 /**
@@ -117,13 +146,20 @@ void gc_reset_roots(void)
  */
 void *allocate_obj(size_t size, ObjType type)
 {
-    // Check if we need to collect
+    // Check if we need to collect. DEBUG_STRESS_GC collects on every allocation
+    // so that any value missing a GC root is freed (and caught) immediately.
+#ifdef DEBUG_STRESS_GC
+    gc_collect();
+#else
     if (bytes_allocated > next_gc_threshold)
     {
         gc_collect();
     }
+#endif
 
-    ObjHeader *obj = malloc(size);
+    // Zeroed so that an object pushed as a root before all of its fields are set
+    // never exposes garbage pointers to the marker.
+    ObjHeader *obj = calloc(1, size);
     if (obj == NULL)
     {
         fprintf(stderr, "Fatal: Out of memory.\n");
@@ -152,29 +188,24 @@ void *allocate_obj(size_t size, ObjType type)
  */
 void mark_value(Value v)
 {
-    if (v.type == VAL_LIST)
-        mark_object((ObjHeader *) v.list);
-    else if (v.type == VAL_HASHMAP)
-        mark_object((ObjHeader *) v.hashmap);
-    else if (v.type == VAL_FUNC)
-        mark_object((ObjHeader *) v.func);
-    else if (v.type == VAL_MODULE)
-        mark_object((ObjHeader *) v.module);
-    else if (v.type == VAL_CLASS)
-        mark_object((ObjHeader *) v.pith_class);
-    else if (v.type == VAL_INSTANCE)
-        mark_object((ObjHeader *) v.instance);
-    else if (v.type == VAL_BOUND_METHOD)
-        mark_object((ObjHeader *) v.bound_method);
-    else if (v.type == VAL_STRUCT_DEF)
-        mark_object((ObjHeader *) v.struct_def);
-    else
-        if (v.type == VAL_STRUCT_INSTANCE)
-            mark_object((ObjHeader *) v.struct_instance);
+    mark_object(value_object(v));
 }
 
+// --- Gray Stack ---
+// Marking is iterative ("tri-color" marking): mark_object() marks an object and
+// pushes it here ("gray": reachable, references not yet traced), and
+// trace_gray_objects() pops objects and marks what they reference until the
+// stack is empty. Recursing into children instead would use C stack space
+// proportional to the depth of the data, and a deeply nested structure (e.g. a
+// 200,000-level nested list) would overflow the C stack mid-collection.
+static ObjHeader **gray_stack = NULL;
+static int gray_count = 0;
+static int gray_capacity = 0;
+
 /**
- * @brief Recursively marks an object and its references as reachable.
+ * @brief Marks an object as reachable and queues it so its references get traced.
+ *
+ * Does nothing for NULL or already-marked objects, so cycles terminate.
  *
  * @param obj The object to mark.
  */
@@ -188,7 +219,26 @@ void mark_object(ObjHeader *obj)
 #endif
 
     obj->is_marked = 1;
+    if (gray_count == gray_capacity)
+    {
+        gray_capacity = gray_capacity == 0 ? 256 : gray_capacity * 2;
+        gray_stack = realloc(gray_stack, sizeof(ObjHeader *) * (size_t) gray_capacity);
+        if (gray_stack == NULL)
+        {
+            fprintf(stderr, "Fatal: Out of memory (GC gray stack).\n");
+            exit(1);
+        }
+    }
+    gray_stack[gray_count++] = obj;
+}
 
+/**
+ * @brief Marks every object directly referenced by @p obj.
+ *
+ * @param obj An object that has already been marked.
+ */
+static void trace_references(ObjHeader *obj)
+{
     switch (obj->type)
     {
         case OBJ_LIST:
@@ -262,8 +312,17 @@ void mark_object(ObjHeader *obj)
             break;
         }
         case OBJ_STRUCT_DEF:
+        case OBJ_STRING:
             // No child objects to mark
             break;
+        case OBJ_NATIVE:
+        {
+            // The class knows which Pith values its C data references.
+            NativeObject *native = (NativeObject *) obj;
+            if (native->cls->mark)
+                native->cls->mark(native->data);
+            break;
+        }
         case OBJ_STRUCT_INSTANCE:
         {
             StructInstance *inst = (StructInstance *) obj;
@@ -275,6 +334,15 @@ void mark_object(ObjHeader *obj)
             break;
         }
     }
+}
+
+/**
+ * @brief Traces queued objects until everything reachable has been marked.
+ */
+static void trace_gray_objects(void)
+{
+    while (gray_count > 0)
+        trace_references(gray_stack[--gray_count]);
 }
 
 /**
@@ -290,7 +358,12 @@ void mark_roots()
     // Mark native registries
     mark_object((ObjHeader *) native_string_methods);
     mark_object((ObjHeader *) native_list_methods);
+    mark_object((ObjHeader *) native_map_methods);
     mark_object((ObjHeader *) native_module_funcs);
+
+    // Mark C globals registered with gc_register_value_root()
+    for (int i = 0; i < value_root_count; i++)
+        mark_value(*value_roots[i]);
 
     // Mark temporary roots (from C stack)
     for (int i = 0; i < temp_root_count; i++)
@@ -300,29 +373,10 @@ void mark_roots()
 
     // Mark the environment chain of every active call frame / block scope.
     // Each slot points at a live C local, so we read the current head via *slot;
-    // marking an Env recursively marks its parent chain (see mark_object OBJ_ENV).
+    // marking an Env also marks its parent chain (see trace_references, OBJ_ENV).
     for (int i = 0; i < env_root_count; i++)
     {
         mark_object((ObjHeader *) *env_roots[i]);
-    }
-}
-
-/**
- * @brief Frees content owned by a Value (e.g., strings).
- *
- * Note: This only frees the raw C-string if it's a VAL_STRING.
- * Other object types are managed by the GC object list.
- *
- * @param v The value to free content for.
- */
-void free_value_content(Value v)
-{
-    if (v.type == VAL_STRING && v.str_val != NULL)
-    {
-#ifdef DEBUG_TRACE_ADVANCED_MEMORY
-        printf("[ADV_MEMORY] Freeing string content '%s' at %p\n", v.str_val, (void *) v.str_val);
-#endif
-        free(v.str_val);
     }
 }
 
@@ -351,10 +405,6 @@ void sweep()
                 case OBJ_LIST:
                 {
                     List *list = (List *) unreached;
-                    for (int i = 0; i < list->count; i++)
-                    {
-                        free_value_content(list->items[i]);
-                    }
                     free(list->items);
                     bytes_allocated -= sizeof(List);
                     break;
@@ -369,7 +419,6 @@ void sweep()
                         {
                             MapEntry *next = entry->next;
                             free(entry->key);
-                            free_value_content(entry->value);
                             free(entry);
                             entry = next;
                         }
@@ -412,13 +461,7 @@ void sweep()
                 {
                     Env *env = (Env *) unreached;
                     free(env->name); // NULL for frame nodes; free(NULL) is safe.
-                    free_value_content(env->val);
-                    if (env->slots)
-                    {
-                        for (int i = 0; i < env->slot_count; i++)
-                            free_value_content(env->slots[i]);
-                        free(env->slots);
-                    }
+                    free(env->slots);
                     bytes_allocated -= sizeof(Env);
                     break;
                 }
@@ -430,9 +473,6 @@ void sweep()
                 }
                 case OBJ_BOUND_METHOD:
                 {
-                    BoundMethod *bm = (BoundMethod *) unreached;
-                    free_value_content(bm->receiver);
-                    free_value_content(bm->method);
                     bytes_allocated -= sizeof(BoundMethod);
                     break;
                 }
@@ -454,12 +494,23 @@ void sweep()
                 case OBJ_STRUCT_INSTANCE:
                 {
                     StructInstance *inst = (StructInstance *) unreached;
-                    for (int i = 0; i < inst->def->field_count; i++)
-                    {
-                        free_value_content(inst->field_values[i]);
-                    }
                     free(inst->field_values);
                     bytes_allocated -= sizeof(StructInstance);
+                    break;
+                }
+                case OBJ_NATIVE:
+                {
+                    NativeObject *native = (NativeObject *) unreached;
+                    if (native->cls->finalize)
+                        native->cls->finalize(native->data);
+                    bytes_allocated -= sizeof(NativeObject);
+                    break;
+                }
+                case OBJ_STRING:
+                {
+                    // Header, bytes and NUL were one allocation (see string_new).
+                    ObjString *str = (ObjString *) unreached;
+                    bytes_allocated -= sizeof(ObjString) + (size_t) str->length + 1;
                     break;
                 }
             }
@@ -486,6 +537,7 @@ void gc_collect()
 #endif
 
     mark_roots();
+    trace_gray_objects();
     sweep();
 
     next_gc_threshold = bytes_allocated * 2;

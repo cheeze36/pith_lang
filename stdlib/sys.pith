@@ -3,4 +3,5 @@
 ###
 
 # This module provides access to system-specific parameters and functions.
-# Most functions in this module are native C implementations.
+# The functions in this module are native C implementations in lib/sys_module.h;
+# see that header for the full list. Pith helpers can be added to this file.

@@ -58,6 +58,7 @@ typedef struct
 {
     TokenType type; // Type of the token
     char *value; // String value (if applicable, e.g., identifier name)
+    int length; // Byte length of value; string literals may contain NUL bytes
     int line_num; // Line number where the token appears
 } Token;
 

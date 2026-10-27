@@ -1,22 +1,95 @@
+###
+# Tests for the io module: files, directories, queries and path helpers.
+# Everything happens inside a scratch directory that is removed at the end.
+###
+
 import "io"
 import "sys"
+import "time"
 
-string file_path = "test_output.tmp"
-string content = "Hello, file IO!"
+string root = io.join_path(io.temp_dir(), "pith_io_test_" + str(time.now()))
+if (io.exists(root)):
+    print("scratch directory already exists")
+    sys.exit(1)
 
-# Test writing a file
-bool success = io.write_file(file_path, content)
-print("Write success:", success)
+# --- make_dir creates parents; calling it again is fine ---
+string nested = io.join_path(root, "a", "b", "c")
+io.make_dir(nested)
+io.make_dir(nested)
+print(io.is_dir(nested))
 
-# Test reading the file back
-string read_content = io.read_file(file_path)
-print("Read content:", read_content)
+# --- write / read / append / read_lines ---
+string notes = io.join_path(root, "notes.txt")
+io.write_file(notes, "first\nsecond\r\n")
+io.append_file(notes, "third\n")
+print(io.read_file(notes).len())
+list<string> lines = io.read_lines(notes)
+print(lines)
+io.append_file(io.join_path(root, "fresh.txt"), "created by append")
+print(io.read_file(io.join_path(root, "fresh.txt")))
 
-# Test reading a non-existent file (should return void)
-string bad_content = io.read_file("non_existent_file.tmp")
-print("Bad read:", bad_content)
+# --- queries ---
+print(io.exists(notes))
+print(io.is_file(notes))
+print(io.is_dir(notes))
+print(io.is_file(root))
+print(io.exists(io.join_path(root, "missing.txt")))
+print(io.file_size(notes))
+print(io.modified_time(notes) >= time.now() - 60)
 
-# This part should not be executed if exit works
-# print("This should not print.")
-sys.exit(0)
-print("This should definitely not print.")
+# --- binary data survives a copy ---
+string blob = io.join_path(root, "blob.bin")
+io.write_file(blob, "\x00\x01\xff\x00end")
+io.copy_file(blob, io.join_path(root, "blob_copy.bin"))
+print(io.read_file(io.join_path(root, "blob_copy.bin")) == io.read_file(blob))
+
+# --- list_dir: names, sorted, no "." / ".." ---
+print(io.list_dir(root))
+
+# --- rename (replaces an existing target) and remove ---
+io.rename(io.join_path(root, "fresh.txt"), io.join_path(root, "renamed.txt"))
+io.rename(io.join_path(root, "renamed.txt"), notes)
+print(io.read_file(notes))
+io.remove(io.join_path(root, "blob_copy.bin"))
+print(io.list_dir(root))
+
+# --- errors are rescuable and explain why ---
+try:
+    io.read_file(io.join_path(root, "missing.txt"))
+rescue e:
+    print(e.replace(root, "ROOT"))
+try:
+    io.remove(io.join_path(root, "a"))
+rescue e:
+    print(e.replace(root, "ROOT"))
+try:
+    io.make_dir(io.join_path(notes, "sub"))
+rescue e:
+    print(e.replace(root, "ROOT"))
+try:
+    io.list_dir(notes)
+rescue e:
+    print(e.replace(root, "ROOT"))
+
+# --- path helpers (pure string operations) ---
+print(io.join_path("a", "b"))
+print(io.join_path("a/", "/b", "c.txt"))
+print(io.basename("dir/sub/file.tar.gz"))
+print(io.basename("dir/sub/"))
+print(io.dirname("dir/sub/file.txt"))
+print(io.dirname("file.txt"))
+print(io.dirname("/file.txt"))
+print(io.extension("dir/file.tar.gz"))
+print(io.extension("dir/.bashrc"))
+print(io.extension("dir.d/README"))
+print(io.absolute_path(root) == io.absolute_path(io.join_path(nested, "..", "..", "..")))
+
+# --- clean up: remove everything we created (deepest first) ---
+define void remove_tree(string path):
+    if (io.is_dir(path)):
+        foreach (string name in io.list_dir(path)):
+            remove_tree(io.join_path(path, name))
+    io.remove(path)
+
+remove_tree(root)
+print(io.exists(root))

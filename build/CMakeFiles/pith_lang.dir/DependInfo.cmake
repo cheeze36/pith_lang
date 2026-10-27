@@ -10,11 +10,24 @@ set(CMAKE_DEPENDS_LANGUAGES
 set(CMAKE_DEPENDS_DEPENDENCY_FILES
   "/home/celdridge/projects/pith/pith_lang/gc.c" "CMakeFiles/pith_lang.dir/gc.c.o" "gcc" "CMakeFiles/pith_lang.dir/gc.c.o.d"
   "/home/celdridge/projects/pith/pith_lang/interpreter.c" "CMakeFiles/pith_lang.dir/interpreter.c.o" "gcc" "CMakeFiles/pith_lang.dir/interpreter.c.o.d"
+  "/home/celdridge/projects/pith/pith_lang/lib/crypto_module.c" "CMakeFiles/pith_lang.dir/lib/crypto_module.c.o" "gcc" "CMakeFiles/pith_lang.dir/lib/crypto_module.c.o.d"
+  "/home/celdridge/projects/pith/pith_lang/lib/encoding_module.c" "CMakeFiles/pith_lang.dir/lib/encoding_module.c.o" "gcc" "CMakeFiles/pith_lang.dir/lib/encoding_module.c.o.d"
+  "/home/celdridge/projects/pith/pith_lang/lib/gui.c" "CMakeFiles/pith_lang.dir/lib/gui.c.o" "gcc" "CMakeFiles/pith_lang.dir/lib/gui.c.o.d"
+  "/home/celdridge/projects/pith/pith_lang/lib/http_module.c" "CMakeFiles/pith_lang.dir/lib/http_module.c.o" "gcc" "CMakeFiles/pith_lang.dir/lib/http_module.c.o.d"
+  "/home/celdridge/projects/pith/pith_lang/lib/io_module.c" "CMakeFiles/pith_lang.dir/lib/io_module.c.o" "gcc" "CMakeFiles/pith_lang.dir/lib/io_module.c.o.d"
+  "/home/celdridge/projects/pith/pith_lang/lib/json_module.c" "CMakeFiles/pith_lang.dir/lib/json_module.c.o" "gcc" "CMakeFiles/pith_lang.dir/lib/json_module.c.o.d"
+  "/home/celdridge/projects/pith/pith_lang/lib/regex_module.c" "CMakeFiles/pith_lang.dir/lib/regex_module.c.o" "gcc" "CMakeFiles/pith_lang.dir/lib/regex_module.c.o.d"
+  "/home/celdridge/projects/pith/pith_lang/lib/sha256.c" "CMakeFiles/pith_lang.dir/lib/sha256.c.o" "gcc" "CMakeFiles/pith_lang.dir/lib/sha256.c.o.d"
+  "/home/celdridge/projects/pith/pith_lang/lib/sys_module.c" "CMakeFiles/pith_lang.dir/lib/sys_module.c.o" "gcc" "CMakeFiles/pith_lang.dir/lib/sys_module.c.o.d"
+  "/home/celdridge/projects/pith/pith_lang/lib/time_module.c" "CMakeFiles/pith_lang.dir/lib/time_module.c.o" "gcc" "CMakeFiles/pith_lang.dir/lib/time_module.c.o.d"
   "/home/celdridge/projects/pith/pith_lang/main.c" "CMakeFiles/pith_lang.dir/main.c.o" "gcc" "CMakeFiles/pith_lang.dir/main.c.o.d"
+  "/home/celdridge/projects/pith/pith_lang/native_object.c" "CMakeFiles/pith_lang.dir/native_object.c.o" "gcc" "CMakeFiles/pith_lang.dir/native_object.c.o.d"
   "/home/celdridge/projects/pith/pith_lang/parser.c" "CMakeFiles/pith_lang.dir/parser.c.o" "gcc" "CMakeFiles/pith_lang.dir/parser.c.o.d"
+  "/home/celdridge/projects/pith/pith_lang/pith_string.c" "CMakeFiles/pith_lang.dir/pith_string.c.o" "gcc" "CMakeFiles/pith_lang.dir/pith_string.c.o.d"
   "/home/celdridge/projects/pith/pith_lang/repl.c" "CMakeFiles/pith_lang.dir/repl.c.o" "gcc" "CMakeFiles/pith_lang.dir/repl.c.o.d"
   "/home/celdridge/projects/pith/pith_lang/resolver.c" "CMakeFiles/pith_lang.dir/resolver.c.o" "gcc" "CMakeFiles/pith_lang.dir/resolver.c.o.d"
   "/home/celdridge/projects/pith/pith_lang/tokenizer.c" "CMakeFiles/pith_lang.dir/tokenizer.c.o" "gcc" "CMakeFiles/pith_lang.dir/tokenizer.c.o.d"
+  "/home/celdridge/projects/pith/pith_lang/types.c" "CMakeFiles/pith_lang.dir/types.c.o" "gcc" "CMakeFiles/pith_lang.dir/types.c.o.d"
   )
 
 # Targets to which this target links which contain Fortran sources.

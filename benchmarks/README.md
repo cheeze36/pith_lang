@@ -11,7 +11,7 @@ Run one with:
 
 | File             | What it stresses                                                        | Expected output |
 |------------------|------------------------------------------------------------------------|-----------------|
-| `bench_loop.pith`| Integer binary ops and variable access in a tight `while` loop (3M iterations). Exercises the literal-caching and operator-dispatch hot paths. | `2037514880` (32-bit wrapped sum) |
+| `bench_loop.pith`| Integer binary ops and variable access in a tight `while` loop (3M iterations). Exercises the literal-caching and operator-dispatch hot paths. | `8999994000000` |
 | `bench_fib.pith` | Recursive calls, environment setup, and comparison ops via `fib(30)`.   | `832040`        |
 
 `bench_fib.pith` also serves as the regression test for the recursion /

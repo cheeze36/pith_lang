@@ -10,6 +10,8 @@
 #ifndef PITH_VALUE_H
 #define PITH_VALUE_H
 
+#include <stdint.h>
+#include <inttypes.h>
 #include "parser.h" // For ASTNode
 
 // --- Forward Declarations ---
@@ -25,6 +27,8 @@ typedef struct Func Func;
 typedef struct PithClass PithClass;
 typedef struct PithInstance PithInstance;
 typedef struct BoundMethod BoundMethod;
+typedef struct ObjString ObjString;
+typedef struct NativeObject NativeObject;
 
 /**
  * @brief Function pointer type for native built-in functions.
@@ -37,6 +41,9 @@ typedef Value (*NativeFn)(int arg_count, Value *args);
 /**
  * @brief Enumeration of all possible value types in the Pith language.
  */
+// printf format for a Pith int, e.g. printf("n=%" PITH_INT_FMT "\n", v.int_val).
+#define PITH_INT_FMT PRId64
+
 typedef enum
 {
     VAL_INT, // Integer value
@@ -54,6 +61,7 @@ typedef enum
     VAL_CLASS, // Class definition
     VAL_INSTANCE, // Instance of a class
     VAL_BOUND_METHOD, // Method bound to an instance
+    VAL_NATIVE_OBJECT, // C-backed object with a native class (see native_object.h)
     VAL_BREAK, // Internal: Break signal
     VAL_CONTINUE // Internal: Continue signal
 } ValueType;
@@ -74,7 +82,9 @@ typedef enum
     OBJ_BOUND_METHOD,
     OBJ_STRUCT_DEF,
     OBJ_STRUCT_INSTANCE,
-    OBJ_ENV
+    OBJ_ENV,
+    OBJ_STRING,
+    OBJ_NATIVE
 } ObjType;
 
 /**
@@ -100,9 +110,10 @@ struct Value
 
     union
     {
-        int int_val;
-        float float_val;
-        char *str_val;
+        int64_t int_val; // VAL_INT (64-bit) and VAL_BOOL (0/1)
+        double float_val; // VAL_FLOAT (64-bit IEEE double)
+        ObjString *string; // VAL_STRING; see AS_CSTRING / string_new() in pith_string.h
+        NativeObject *native; // VAL_NATIVE_OBJECT; see native_object.h
         NativeFn native_fn;
         Func *func;
         Module *module;
@@ -117,6 +128,33 @@ struct Value
 };
 
 // --- Heap Allocated Objects (GC Managed) ---
+
+/**
+ * @brief A Pith value backed by C data, e.g. a compiled Regex (see native_object.h).
+ */
+struct NativeObject
+{
+    ObjHeader obj;
+    struct NativeClass *cls; // Type name, methods and GC hooks.
+    void *data; // Owned by the object; released by cls->finalize.
+};
+
+/**
+ * @brief An immutable string: a GC-managed, length-prefixed byte sequence.
+ *
+ * Strings may contain any bytes, including NUL, so `length` (not strlen) is
+ * authoritative. `chars` is still always followed by a terminating NUL, so text
+ * strings can be handed straight to C APIs that expect a C string.
+ *
+ * Strings are never modified after creation, which lets values share one
+ * ObjString freely (assignment does not copy).
+ */
+struct ObjString
+{
+    ObjHeader obj;
+    int length; // Number of bytes, excluding the terminating NUL.
+    char chars[]; // length bytes + '\0'.
+};
 
 /**
  * @brief A user-defined function.
@@ -173,7 +211,7 @@ struct List
     int count;
     int capacity;
     int is_fixed; // Flag to indicate if the list is fixed-size
-    ValueType element_type; // VAL_VOID means unknown / not enforced
+    TypeSpec *element_spec; // Declared element type (see types.h); NULL = not yet typed
 };
 
 /**
@@ -184,6 +222,7 @@ struct MapEntry
     char *key;
     Value value;
     MapEntry *next;
+    long order; // Insertion sequence number; keys(), foreach and print use this order.
 };
 
 /**
@@ -194,8 +233,11 @@ struct HashMap
     ObjHeader obj;
     MapEntry **buckets;
     int bucket_count;
+    int count; // Number of entries.
+    long next_order; // Sequence number for the next inserted key.
     ValueType key_type;
-    ValueType value_type;
+    ValueType value_type; // Internal tables only (e.g. VAL_NATIVE_FN); VAL_VOID = unchecked
+    TypeSpec *value_spec; // Pith maps: declared value type (see types.h); NULL = not yet typed
 };
 
 /**
@@ -207,6 +249,7 @@ struct PithClass
     char *name;
     HashMap *methods;
     char **fields;
+    TypeSpec **field_types; // Declared type of each field (parallel to `fields`)
     int field_count;
     struct PithClass *parent; // The parent class, for inheritance
 };
@@ -258,10 +301,12 @@ struct Env
     ObjHeader obj;
     char *name; // Binding name (NULL for function-frame nodes).
     Value val; // Binding value (name nodes only).
+    TypeSpec *declared_type; // Declared type of the binding (name nodes); NULL = untyped.
     struct Env *next; // Next link: chain for name nodes; captured name env for frames.
 
     // Function-frame fields (slots == NULL for plain name-binding nodes):
     Value *slots; // Array of local variable slots.
+    TypeSpec **slot_types; // Declared type per slot (owned by the function's AST); NULL entries = untyped.
     int slot_count; // Number of slots.
     struct Env *enclosing; // Enclosing function frame (for closures / depth > 0).
 };

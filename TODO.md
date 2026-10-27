@@ -26,10 +26,10 @@ This document tracks the major features, bug fixes, and improvements for the Pit
   `gc.c`), called in `exec_block` and at every call site in `interpreter.c`, and
   `gc_reset_roots` on the REPL's longjmp error-recovery path. Covered by
   `benchmarks/bench_fib.pith`.
-  - Note: a narrower rooting gap remains — heap values already evaluated into the
-    `args[]` array are not rooted while the remaining arguments are evaluated.
-    Not yet observed to crash; close it when the call path is reworked into a
-    single pre-sized frame (see Performance).
+  - Follow-up (2026-10): all remaining temporary-value rooting gaps (call
+    arguments, operands, foreach collections, classes/modules under construction,
+    ...) are closed. Verify with a `-DDEBUG_STRESS_GC` + AddressSanitizer build,
+    which collects on every allocation (see DESIGN.md, Memory Management).
 
 ## 1.5. Performance
 

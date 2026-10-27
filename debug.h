@@ -65,4 +65,10 @@
 // Traces the execution of the tokenizer, showing each character as it is processed.
 // #define DEBUG_TRACE_TOKENIZER
 
+// Runs a full GC cycle on every allocation. Very slow; use together with
+// AddressSanitizer to catch values that are missing a GC root:
+//     cmake -B build-stress -DCMAKE_BUILD_TYPE=Debug \
+//           -DCMAKE_C_FLAGS="-DDEBUG_STRESS_GC -fsanitize=address -g"
+// #define DEBUG_STRESS_GC
+
 #endif //PITH_DEBUG_H

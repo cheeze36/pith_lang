@@ -42,6 +42,17 @@ void free_all_objects();
 void print_gc_stats();
 
 // --- Temporary Root Management ---
+//
+// These run on every operator and call, so the fast paths are inline.
+
+extern ObjHeader **temp_roots;
+extern int temp_root_count;
+extern int temp_root_capacity;
+
+/**
+ * @brief Grows the temporary root stack (slow path of gc_push_root()).
+ */
+void gc_grow_temp_roots(void);
 
 /**
  * @brief Pushes an object onto the temporary root stack.
@@ -49,14 +60,92 @@ void print_gc_stats();
  * Protects the object from being collected if a GC cycle occurs while the object
  * is only referenced from the C stack (and not yet linked into the object graph).
  *
- * @param obj The object to protect.
+ * @param obj The object to protect (NULL is allowed and ignored by the marker).
  */
-void gc_push_root(ObjHeader *obj);
+static inline void gc_push_root(ObjHeader *obj)
+{
+    if (temp_root_count >= temp_root_capacity)
+        gc_grow_temp_roots();
+    temp_roots[temp_root_count++] = obj;
+}
 
 /**
  * @brief Pops the last object from the temporary root stack.
  */
 void gc_pop_root();
+
+/**
+ * @brief Returns the heap object a value refers to, or NULL for non-heap values.
+ */
+static inline ObjHeader *value_object(Value v)
+{
+    switch (v.type)
+    {
+        case VAL_STRING: return (ObjHeader *) v.string;
+        case VAL_LIST: return (ObjHeader *) v.list;
+        case VAL_HASHMAP: return (ObjHeader *) v.hashmap;
+        case VAL_FUNC: return (ObjHeader *) v.func;
+        case VAL_MODULE: return (ObjHeader *) v.module;
+        case VAL_CLASS: return (ObjHeader *) v.pith_class;
+        case VAL_INSTANCE: return (ObjHeader *) v.instance;
+        case VAL_BOUND_METHOD: return (ObjHeader *) v.bound_method;
+        case VAL_STRUCT_DEF: return (ObjHeader *) v.struct_def;
+        case VAL_STRUCT_INSTANCE: return (ObjHeader *) v.struct_instance;
+        case VAL_NATIVE_OBJECT: return (ObjHeader *) v.native;
+        default: return NULL; // Numbers, bools, void, native functions: nothing to collect.
+    }
+}
+
+/**
+ * @brief Pushes a value onto the temporary root stack.
+ *
+ * Use for intermediate values that live only in C locals while further
+ * allocation may happen (operands, call arguments, a collection being iterated).
+ * Non-heap values push a NULL placeholder, so pushes and pops always balance.
+ *
+ * @param v The value to protect.
+ */
+static inline void gc_push_value(Value v)
+{
+    gc_push_root(value_object(v));
+}
+
+/**
+ * @brief Pushes a value only if it refers to a heap object.
+ *
+ * Cheaper than gc_push_value() for numbers and bools, but the number of pushes
+ * then varies, so it may only be paired with gc_temp_root_depth() /
+ * gc_pop_roots_to(), never with gc_pop_root().
+ *
+ * @param v The value to protect.
+ */
+static inline void gc_push_value_if_heap(Value v)
+{
+    ObjHeader *obj = value_object(v);
+    if (obj != NULL)
+        gc_push_root(obj);
+}
+
+/**
+ * @brief Returns the current depth of the temporary root stack.
+ *
+ * Pair with gc_pop_roots_to() to release everything pushed since, which is
+ * simpler than counting pops when several values were pushed.
+ */
+static inline int gc_temp_root_depth(void)
+{
+    return temp_root_count;
+}
+
+/**
+ * @brief Pops the temporary root stack back to @p depth.
+ *
+ * @param depth A depth previously returned by gc_temp_root_depth().
+ */
+static inline void gc_pop_roots_to(int depth)
+{
+    temp_root_count = depth;
+}
 
 // --- Active Environment Root Management ---
 
@@ -81,6 +170,27 @@ void gc_push_env_root(Env **slot);
 void gc_pop_env_root();
 
 /**
+ * @brief Marks a value (and everything it references) as reachable.
+ *
+ * Only for use inside a NativeMarkFn hook (see native_object.h), i.e. during
+ * a collection's mark phase.
+ *
+ * @param v The value to mark.
+ */
+void mark_value(Value v);
+
+/**
+ * @brief Registers a C global holding a Pith value as a permanent GC root.
+ *
+ * For values that live outside any Pith variable for the rest of the run, such
+ * as callbacks stored by a native module. The slot is read on every collection,
+ * so it may be reassigned freely after registration.
+ *
+ * @param slot Address of the global (must stay valid for the whole run).
+ */
+void gc_register_value_root(Value *slot);
+
+/**
  * @brief Clears the temporary and active-environment root stacks.
  *
  * Intended for the REPL's error-recovery path: longjmp unwinds the C stack
@@ -88,5 +198,32 @@ void gc_pop_env_root();
  * avoid stale (and dangling) root entries.
  */
 void gc_reset_roots(void);
+
+/**
+ * @brief Saved depths of the temporary and active-environment root stacks.
+ */
+typedef struct
+{
+    int temp_root_count;
+    int env_root_count;
+} GcRootSnapshot;
+
+/**
+ * @brief Records the current depth of both root stacks.
+ *
+ * Paired with gc_restore_root_snapshot() by `try` statements: an error raised
+ * inside the try body longjmps past the gc_pop_* calls of every frame it unwinds,
+ * so the stacks are truncated back to the depth they had when the try began.
+ *
+ * @return The current stack depths.
+ */
+GcRootSnapshot gc_root_snapshot(void);
+
+/**
+ * @brief Truncates both root stacks back to a previously recorded depth.
+ *
+ * @param snapshot Depths returned by an earlier gc_root_snapshot().
+ */
+void gc_restore_root_snapshot(GcRootSnapshot snapshot);
 
 #endif //PITH_GC_H

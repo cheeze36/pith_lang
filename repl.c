@@ -33,6 +33,42 @@ static TokenizerState *current_tokenizer_state = NULL;
 static ASTNode *current_ast_root = NULL;
 static char *current_code_buffer = NULL;
 
+// Syntax trees of every executed input. Functions and classes defined in the
+// REPL point into the tree they were parsed from (their bodies are AST nodes),
+// so a tree must live as long as anything defined from it, i.e. until the REPL
+// exits. Freeing each input's tree after running it left later calls reading
+// freed memory.
+static ASTNode **retained_trees = NULL;
+static int retained_count = 0;
+static int retained_capacity = 0;
+
+/**
+ * @brief Keeps an executed input's syntax tree alive until the REPL exits.
+ */
+static void retain_tree(ASTNode *root)
+{
+    if (root == NULL)
+        return;
+    if (retained_count == retained_capacity)
+    {
+        retained_capacity = retained_capacity == 0 ? 64 : retained_capacity * 2;
+        retained_trees = realloc(retained_trees, sizeof(ASTNode *) * (size_t) retained_capacity);
+    }
+    retained_trees[retained_count++] = root;
+}
+
+/**
+ * @brief Frees every retained syntax tree (at REPL exit).
+ */
+static void free_retained_trees(void)
+{
+    for (int i = 0; i < retained_count; i++)
+        free_ast(retained_trees[i]);
+    free(retained_trees);
+    retained_trees = NULL;
+    retained_count = retained_capacity = 0;
+}
+
 /**
  * @brief Custom error reporting function for the REPL.
  *
@@ -62,7 +98,8 @@ void repl_report_error(int line, const char *format, ...)
     }
     if (current_ast_root)
     {
-        free_ast(current_ast_root);
+        // The input may have defined functions before the error; keep its tree.
+        retain_tree(current_ast_root);
         current_ast_root = NULL;
     }
 
@@ -236,6 +273,7 @@ void start_repl(int interactive_mode)
             // pending gc_pop_* calls, so clear the GC root stacks to drop stale
             // (and now dangling) frame roots before continuing.
             gc_reset_roots();
+            reset_try_frames();
             if (current_code_buffer)
             {
                 free(current_code_buffer);
@@ -349,14 +387,16 @@ void start_repl(int interactive_mode)
             }
         }
 
-        // Cleanup for next iteration
+        // Cleanup for next iteration. The tokens can go (AST nodes copy their
+        // text); the tree is retained because definitions point into it.
         free_tokens(&t_state);
         current_tokenizer_state = NULL;
-        free_ast(root);
+        retain_tree(root);
         current_ast_root = NULL;
     }
 
     if (current_code_buffer)
         free(current_code_buffer);
+    free_retained_trees();
     printf("Exiting REPL.\n");
 }

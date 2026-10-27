@@ -3,4 +3,5 @@
 ###
 
 # This module provides functions for interacting with files and other IO devices.
-# Most functions in this module are native C implementations.
+# The functions in this module are native C implementations in lib/io_module.h;
+# see that header for the full list. Pith helpers can be added to this file.

@@ -3,15 +3,11 @@ CMakeFiles/pith_lang.dir/repl.c.o: \
  /usr/include/stdc-predef.h \
  /home/celdridge/projects/pith/pith_lang/repl.h \
  /home/celdridge/projects/pith/pith_lang/interpreter.h \
+ /usr/lib/gcc/x86_64-linux-gnu/13/include/stddef.h \
  /home/celdridge/projects/pith/pith_lang/parser.h \
  /home/celdridge/projects/pith/pith_lang/tokenizer.h \
  /home/celdridge/projects/pith/pith_lang/value.h \
- /home/celdridge/projects/pith/pith_lang/common.h \
- /usr/lib/gcc/x86_64-linux-gnu/13/include/stdarg.h \
- /home/celdridge/projects/pith/pith_lang/debug.h \
- /home/celdridge/projects/pith/pith_lang/gc.h \
- /usr/lib/gcc/x86_64-linux-gnu/13/include/stddef.h \
- /home/celdridge/projects/pith/pith_lang/resolver.h /usr/include/stdio.h \
+ /usr/lib/gcc/x86_64-linux-gnu/13/include/stdint.h /usr/include/stdint.h \
  /usr/include/x86_64-linux-gnu/bits/libc-header-start.h \
  /usr/include/features.h /usr/include/features-time64.h \
  /usr/include/x86_64-linux-gnu/bits/wordsize.h \
@@ -23,6 +19,15 @@ CMakeFiles/pith_lang.dir/repl.c.o: \
  /usr/include/x86_64-linux-gnu/bits/types.h \
  /usr/include/x86_64-linux-gnu/bits/typesizes.h \
  /usr/include/x86_64-linux-gnu/bits/time64.h \
+ /usr/include/x86_64-linux-gnu/bits/wchar.h \
+ /usr/include/x86_64-linux-gnu/bits/stdint-intn.h \
+ /usr/include/x86_64-linux-gnu/bits/stdint-uintn.h \
+ /usr/include/x86_64-linux-gnu/bits/stdint-least.h \
+ /usr/include/inttypes.h /home/celdridge/projects/pith/pith_lang/common.h \
+ /usr/lib/gcc/x86_64-linux-gnu/13/include/stdarg.h \
+ /home/celdridge/projects/pith/pith_lang/debug.h \
+ /home/celdridge/projects/pith/pith_lang/gc.h \
+ /home/celdridge/projects/pith/pith_lang/resolver.h /usr/include/stdio.h \
  /usr/include/x86_64-linux-gnu/bits/types/__fpos_t.h \
  /usr/include/x86_64-linux-gnu/bits/types/__mbstate_t.h \
  /usr/include/x86_64-linux-gnu/bits/types/__fpos64_t.h \
@@ -42,8 +47,7 @@ CMakeFiles/pith_lang.dir/repl.c.o: \
  /usr/include/x86_64-linux-gnu/bits/types/clock_t.h \
  /usr/include/x86_64-linux-gnu/bits/types/clockid_t.h \
  /usr/include/x86_64-linux-gnu/bits/types/time_t.h \
- /usr/include/x86_64-linux-gnu/bits/types/timer_t.h \
- /usr/include/x86_64-linux-gnu/bits/stdint-intn.h /usr/include/endian.h \
+ /usr/include/x86_64-linux-gnu/bits/types/timer_t.h /usr/include/endian.h \
  /usr/include/x86_64-linux-gnu/bits/endian.h \
  /usr/include/x86_64-linux-gnu/bits/endianness.h \
  /usr/include/x86_64-linux-gnu/bits/byteswap.h \

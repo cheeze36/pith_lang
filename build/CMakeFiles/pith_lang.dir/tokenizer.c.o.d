@@ -2,7 +2,9 @@ CMakeFiles/pith_lang.dir/tokenizer.c.o: \
  /home/celdridge/projects/pith/pith_lang/tokenizer.c \
  /usr/include/stdc-predef.h \
  /home/celdridge/projects/pith/pith_lang/tokenizer.h \
- /home/celdridge/projects/pith/pith_lang/debug.h /usr/include/string.h \
+ /home/celdridge/projects/pith/pith_lang/debug.h \
+ /home/celdridge/projects/pith/pith_lang/common.h \
+ /usr/lib/gcc/x86_64-linux-gnu/13/include/stdarg.h /usr/include/string.h \
  /usr/include/x86_64-linux-gnu/bits/libc-header-start.h \
  /usr/include/features.h /usr/include/features-time64.h \
  /usr/include/x86_64-linux-gnu/bits/wordsize.h \
@@ -51,8 +53,7 @@ CMakeFiles/pith_lang.dir/tokenizer.c.o: \
  /usr/include/x86_64-linux-gnu/bits/stdlib-bsearch.h \
  /usr/include/x86_64-linux-gnu/bits/stdlib-float.h \
  /usr/include/x86_64-linux-gnu/bits/stdlib.h /usr/include/ctype.h \
- /usr/include/stdio.h /usr/lib/gcc/x86_64-linux-gnu/13/include/stdarg.h \
- /usr/include/x86_64-linux-gnu/bits/types/__fpos_t.h \
+ /usr/include/stdio.h /usr/include/x86_64-linux-gnu/bits/types/__fpos_t.h \
  /usr/include/x86_64-linux-gnu/bits/types/__mbstate_t.h \
  /usr/include/x86_64-linux-gnu/bits/types/__fpos64_t.h \
  /usr/include/x86_64-linux-gnu/bits/types/__FILE.h \

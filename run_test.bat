@@ -33,7 +33,20 @@ SET TEST_NAMES=^
     super_call ^
     stdlib_string_list ^
     test_class_pass ^
-    test_integer
+    test_time ^
+    test_map_from_call ^
+    test_try_rescue ^
+    test_strings ^
+    test_types ^
+    test_map_methods ^
+    test_json ^
+    test_numbers64 ^
+    test_sys ^
+    test_regex ^
+    test_crypto ^
+    test_robustness ^
+    test_integer ^
+    math_random
 
 ECHO.
 ECHO ============================

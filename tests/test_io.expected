@@ -1,3 +1,31 @@
-Write success: true
-Read content: Hello, file IO!
-Bad read: void
+true
+20
+[first, second, third]
+created by append
+true
+true
+false
+false
+false
+20
+true
+true
+[a, blob.bin, blob_copy.bin, fresh.txt, notes.txt]
+created by append
+[a, blob.bin, notes.txt]
+read_file(): could not read 'ROOT/missing.txt': No such file or directory.
+remove(): could not remove 'ROOT/a': Directory not empty.
+make_dir(): could not create 'ROOT/notes.txt/sub': 'ROOT/notes.txt' is a file.
+list_dir(): could not list 'ROOT/notes.txt': Not a directory.
+a/b
+a/b/c.txt
+file.tar.gz
+sub
+dir/sub
+.
+/
+.gz
+
+
+true
+false

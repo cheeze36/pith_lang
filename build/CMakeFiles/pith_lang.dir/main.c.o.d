@@ -65,7 +65,13 @@ CMakeFiles/pith_lang.dir/main.c.o: \
  /home/celdridge/projects/pith/pith_lang/parser.h \
  /home/celdridge/projects/pith/pith_lang/interpreter.h \
  /home/celdridge/projects/pith/pith_lang/value.h \
- /home/celdridge/projects/pith/pith_lang/common.h \
+ /usr/lib/gcc/x86_64-linux-gnu/13/include/stdint.h /usr/include/stdint.h \
+ /usr/include/x86_64-linux-gnu/bits/wchar.h \
+ /usr/include/x86_64-linux-gnu/bits/stdint-uintn.h \
+ /usr/include/x86_64-linux-gnu/bits/stdint-least.h \
+ /usr/include/inttypes.h /home/celdridge/projects/pith/pith_lang/common.h \
  /home/celdridge/projects/pith/pith_lang/debug.h \
  /home/celdridge/projects/pith/pith_lang/repl.h \
- /home/celdridge/projects/pith/pith_lang/gc.h
+ /home/celdridge/projects/pith/pith_lang/gc.h \
+ /home/celdridge/projects/pith/pith_lang/lib/sys_module.h \
+ /home/celdridge/projects/pith/pith_lang/value.h

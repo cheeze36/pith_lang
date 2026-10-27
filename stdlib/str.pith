@@ -8,11 +8,28 @@
 
 ###
 # Native Method: len()
-# Returns the number of characters in the string.
+# Returns the length of the string in bytes.
 #
 # Usage:
-#   string my_str = "hello"
-#   int length = my_str.len() # length is 5
+#   string my_str = "héllo"
+#   int length = my_str.len() # length is 6 ("é" is two bytes in UTF-8)
+###
+
+###
+# Native Method: count()
+# Returns the number of characters (UTF-8 code points) in the string.
+#
+# Usage:
+#   string my_str = "héllo"
+#   int chars = my_str.count() # chars is 5
+###
+
+###
+# Native Method: repeat(count)
+# Returns the string repeated count times, built in one step.
+#
+# Usage:
+#   string line = "-".repeat(20) # "--------------------"
 ###
 
 ###

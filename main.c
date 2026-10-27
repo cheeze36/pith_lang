@@ -16,6 +16,7 @@
 #include "debug.h"
 #include "repl.h"
 #include "gc.h" // Include GC
+#include "sys_module.h" // sys_set_args() for sys.args()
 
 // To enable debug traces, uncomment the desired flags in debug.h
 // or define them here before the includes.
@@ -26,6 +27,7 @@
  * Usage:
  *   pith              - Start REPL
  *   pith script.pith  - Execute script
+ *   pith script.pith a b - Execute script with arguments (see sys.args())
  *   pith -i script.pith - Execute script and then drop into REPL
  *
  * @param argc Argument count.
@@ -34,6 +36,10 @@
  */
 int main(int argc, char *argv[])
 {
+    // Everything the interpreter does runs below this point on the C stack, so
+    // the stack guard measures from here (see common.h).
+    stack_guard_init();
+
     // --- REPL Mode (No arguments) ---
     if (argc == 1)
     {
@@ -45,7 +51,9 @@ int main(int argc, char *argv[])
     int interactive = 0;
     char *filename = NULL;
 
-    // Parse arguments
+    // Parse arguments: interpreter flags, then the script; everything after the
+    // script belongs to the script (see sys.args()).
+    int script_index = argc;
     for (int i = 1; i < argc; i++)
     {
         if (strcmp(argv[i], "-i") == 0)
@@ -55,8 +63,12 @@ int main(int argc, char *argv[])
         else
         {
             filename = argv[i];
+            script_index = i;
+            break;
         }
     }
+    if (filename)
+        sys_set_args(filename, argc - script_index - 1, argv + script_index + 1);
 
     if (filename == NULL)
     {
@@ -67,7 +79,7 @@ int main(int argc, char *argv[])
             free_all_objects();
             return 0;
         }
-        fprintf(stderr, "Usage: %s [-i] [filename]\n", argv[0]);
+        fprintf(stderr, "Usage: %s [-i] [script.pith [script arguments...]]\n", argv[0]);
         return 1;
     }
 
@@ -92,10 +104,8 @@ int main(int argc, char *argv[])
     // Interpret
     interpret(ast_root);
 
-    // Free resources
-    free(source);
+    // The tokens are no longer needed (AST nodes copy their text).
     free_tokens(&tokenizer_state);
-    free_ast(ast_root);
 
     // If interactive mode was requested, start REPL after script execution
     if (interactive)
@@ -103,6 +113,11 @@ int main(int argc, char *argv[])
         // Drop into REPL, preserving the environment populated by the script
         start_repl(1);
     }
+
+    // Free the script's syntax tree and source only now: functions and classes
+    // it defined point into the tree, and the REPL above may still call them.
+    free_ast(ast_root);
+    free(source);
 
     // Final cleanup
     free_all_objects(); // Clean up GC objects
