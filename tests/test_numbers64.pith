@@ -1,0 +1,93 @@
+###
+# Tests for 64-bit numbers: int range, checked overflow, exact integer powers,
+# double-precision floats, conversions and JSON round trips.
+###
+
+import "json"
+import "math"
+import "random"
+
+# --- int is 64-bit ---
+int big = 9223372036854775807
+print(big)
+print(-big - 1)
+print(2147483647 + 1)
+print(3000000000 * 3)
+print(2 ^ 62)
+print(3 ^ 39)
+print(10 ^ 18)
+print(int("-9223372036854775808"))
+
+# --- overflow is an error, never a silent wrap ---
+try:
+    print(big + 1)
+rescue e:
+    print(e)
+try:
+    print(-big - 2)
+rescue e:
+    print(e)
+try:
+    print(big * 2)
+rescue e:
+    print(e)
+try:
+    print(2 ^ 63)
+rescue e:
+    print(e)
+try:
+    int smallest = -big - 1
+    print(-smallest)
+rescue e:
+    print(e)
+try:
+    int smallest = -big - 1
+    print(smallest / -1)
+rescue e:
+    print(e)
+try:
+    print(2 ^ -1)
+rescue e:
+    print(e)
+print(2.0 ^ -1)
+try:
+    int("9223372036854775808")
+rescue e:
+    print(e)
+
+# --- float is a 64-bit double ---
+print(str(0.1))
+print(str(0.1 + 0.2))
+print(str(1.0 / 3))
+print(str(1e300 * 10))
+print(str(123456789.123456789))
+print(str(float(big)))
+float precise = 16777217
+print(str(precise))
+
+# --- conversions at the edges ---
+print(int(1e18))
+try:
+    int(1e19)
+rescue e:
+    print(e)
+print(math.round(2.5))
+print(math.min(9223372036854775807, 9223372036854775806))
+print(math.max(-9223372036854775807, 3))
+print(math.clamp(5000000000, 0, 4000000000))
+
+# --- random over a large range stays in range ---
+random.seed(3)
+bool in_range = true
+for (int i = 0; i < 200; i = i + 1):
+    int r = random.int(-5000000000, 5000000000)
+    if (r < -5000000000 or r > 5000000000):
+        in_range = false
+print(in_range)
+
+# --- JSON keeps 64-bit ints and full-precision floats ---
+print(json.encode([9007199254740993, 0.1, 1e21]))
+list values = json.decode("[9223372036854775807, 9223372036854775808, 0.30000000000000004]")
+print(values[0] == big)
+print(str(values[1]))
+print(str(values[2]))

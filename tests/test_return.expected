@@ -1,0 +1,6 @@
+log: one
+after
+30
+1
+finally ran
+'must_return' must return int, but returned nothing.

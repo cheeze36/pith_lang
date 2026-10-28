@@ -1,0 +1,137 @@
+###
+# Tests for the template module: output and escaping, conditions, loops,
+# loop variables, helpers, partials, standalone-line removal, expressions,
+# typing rules, and error locations.
+###
+
+import "template"
+
+define string render(string text, map data):
+    return template.compile(text).render(data)
+
+# --- output and escaping ---
+print(render("Hello, {{name}}!", {"name": "Ann"}))
+print(render("{{html}}", {"html": "<b>\"Tom\" & 'Jerry'</b>"}))
+print(render("{{raw html}}", {"html": "<b>bold</b>"}))
+print(render("{{n}} {{f}} {{b}} {{big}}", {"n": 42, "f": 2.5, "b": true, "big": 3.0}))
+print(template.escape("<a href='x'>&</a>"))
+print(render("literal \\{{ not a tag }}", {}))
+
+# --- conditions: if / else if / else ---
+string grade = "{{#if score >= 90}}A{{else if score >= 80}}B{{else}}C{{/if}}"
+print(render(grade, {"score": 95}) + render(grade, {"score": 85}) + render(grade, {"score": 10}))
+print(render("{{#if a and !b}}yes{{else}}no{{/if}}", {"a": true, "b": false}))
+print(render("{{#if name == \"Ann\" or name == 'Bob'}}known{{/if}}", {"name": "Bob"}))
+print(render("{{#if x != void}}set{{else}}unset{{/if}}", {"x": void}))
+
+# --- loops: lists, maps, loop variables, else for empty ---
+string list_template = "{{#each items as item}}[{{@index}}:{{item}}{{#if @first}} first{{/if}}{{#if @last}} last{{/if}}]{{else}}none{{/each}}"
+print(render(list_template, {"items": ["a", "b", "c"]}))
+print(render(list_template, {"items": []}))
+print(render("{{#each ages as name}}{{name}}={{ages[name]}} {{/each}}", {"ages": {"ann": 31, "bob": 25}}))
+print(render("{{#each rows as row}}{{#each row as cell}}{{cell}}{{#if !@last}},{{/if}}{{/each}};{{/each}}",
+             {"rows": [[1, 2], [3, 4, 5]]}))
+
+# --- expressions: arithmetic, access, len(), parentheses ---
+map order = {"items": [{"price": 250, "qty": 2}, {"price": 100, "qty": 1}], "customer": {"name": "Ann"}}
+print(render("{{customer.name}} has {{items.len()}} lines; first total {{items[0].price * items[0].qty}}", order))
+print(render("{{(1 + 2) * 3}} {{10 / 4}} {{10.0 / 4}} {{-5 + 2}} {{\"ab\" + \"cd\"}} {{word[0]}}", {"word": "xyz"}))
+
+# --- objects: fields of class instances ---
+class Product:
+    string name
+    int stock
+    define init(string n, int s):
+        this.name = n
+        this.stock = s
+print(render("{{p.name}}: {{#if p.stock == 0}}sold out{{else}}{{p.stock}} left{{/if}}", {"p": Product("Lamp", 0)}))
+
+# --- helpers are typed Pith functions ---
+define string shout(string text, int times):
+    return text.upper() + "!".repeat(times)
+define bool is_even(int n):
+    return n % 2 == 0
+Template with_helpers = template.compile("{{shout name 3}} {{#if is_even count}}even{{else}}odd{{/if}} {{#each numbers as n}}{{shout (str n) 1}}{{/each}}")
+with_helpers.helper("shout", shout)
+with_helpers.helper("is_even", is_even)
+with_helpers.helper("str", str)
+print(with_helpers.render({"name": "hey", "count": 4, "numbers": [1, 2]}))
+
+# --- partials (relative to the including file; nested folders) and standalone lines ---
+Template page = template.load("tests/templates/page.html")
+print(page.render({"title": "Home", "body": "Welcome"}))
+print(render("a\n{{#if show}}\nshown\n{{/if}}\n{{! comment }}\nb", {"show": true}))
+
+# --- typing rules: errors, never silent output ---
+list<string> failing = [
+    "{{#if count}}x{{/if}}",
+    "{{#each title as t}}{{t}}{{/each}}",
+    "{{missing}}",
+    "{{user.nmae}}",
+    "{{items}}",
+    "{{nothing}}",
+    "{{count + \"1\"}}",
+    "{{count.name}}",
+    "{{items[5]}}",
+    "{{@index}}",
+    "{{undefined_helper count}}",
+    "{{shout count 1}}",
+    "{{1 / 0}}"
+]
+foreach (string text in failing):
+    try:
+        Template t = template.compile(text)
+        t.helper("shout", shout)
+        print("rendered: " + t.render({"count": 3, "title": "T", "user": {"name": "Ann"}, "items": [1], "nothing": void}))
+    rescue e:
+        print(e)
+
+# --- compile errors name the line and column ---
+list<string> invalid = [
+    "{{#if x}}never closed",
+    "{{/if}}",
+    "{{#if x}}a{{/each}}",
+    "{{#each items}}{{/each}}",
+    "{{#unless x}}{{/unless}}",
+    "{{}}",
+    "{{name",
+    "{{a +}}",
+    "{{@nope}}",
+    "{{x.call()}}",
+    "{{#if a}}{{else}}{{else}}{{/if}}",
+    "line 1\nline 2 {{#each list as}}{{/each}}"
+]
+foreach (string text in invalid):
+    try:
+        template.compile(text)
+        print("compiled: " + text)
+    rescue e:
+        print(e)
+
+# errors in template files report the file, line and column
+try:
+    template.load("tests/templates/typo.html").render({"ok": true, "user": {"name": "Ann"}})
+rescue e:
+    print(e)
+try:
+    template.load("tests/templates/a.html")
+rescue e:
+    print(e.startswith("tests/templates/") and e.contains("nested more than 32 levels"))
+try:
+    template.load("tests/templates/does_not_exist.html")
+rescue e:
+    print(e)
+try:
+    template.compile("{{> missing_partial}}")
+rescue e:
+    print(e)
+
+# --- strict API typing ---
+try:
+    page.render("not a map")
+rescue e:
+    print(e)
+try:
+    page.helper("x", 5)
+rescue e:
+    print(e)

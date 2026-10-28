@@ -64,6 +64,7 @@ CMAKE_BINARY_DIR = /home/celdridge/projects/pith/pith_lang/build
 
 # The main recursive "all" target.
 all: CMakeFiles/pith_lang.dir/all
+all: CMakeFiles/pith_sqlite.dir/all
 all: _deps/raylib-build/all
 .PHONY : all
 
@@ -73,6 +74,7 @@ preinstall: _deps/raylib-build/preinstall
 
 # The main recursive "clean" target.
 clean: CMakeFiles/pith_lang.dir/clean
+clean: CMakeFiles/pith_sqlite.dir/clean
 clean: _deps/raylib-build/clean
 .PHONY : clean
 
@@ -144,16 +146,17 @@ _deps/raylib-build/raylib/external/glfw/src/clean: _deps/raylib-build/raylib/ext
 # Target rules for target CMakeFiles/pith_lang.dir
 
 # All Build rule for target.
+CMakeFiles/pith_lang.dir/all: CMakeFiles/pith_sqlite.dir/all
 CMakeFiles/pith_lang.dir/all: _deps/raylib-build/raylib/CMakeFiles/raylib.dir/all
 CMakeFiles/pith_lang.dir/all: _deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/all
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/celdridge/projects/pith/pith_lang/build/CMakeFiles --progress-num=38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58 "Built target pith_lang"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/celdridge/projects/pith/pith_lang/build/CMakeFiles --progress-num=38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61 "Built target pith_lang"
 .PHONY : CMakeFiles/pith_lang.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/pith_lang.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /home/celdridge/projects/pith/pith_lang/build/CMakeFiles 66
+	$(CMAKE_COMMAND) -E cmake_progress_start /home/celdridge/projects/pith/pith_lang/build/CMakeFiles 71
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/pith_lang.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /home/celdridge/projects/pith/pith_lang/build/CMakeFiles 0
 .PHONY : CMakeFiles/pith_lang.dir/rule
@@ -166,6 +169,32 @@ pith_lang: CMakeFiles/pith_lang.dir/rule
 CMakeFiles/pith_lang.dir/clean:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/clean
 .PHONY : CMakeFiles/pith_lang.dir/clean
+
+#=============================================================================
+# Target rules for target CMakeFiles/pith_sqlite.dir
+
+# All Build rule for target.
+CMakeFiles/pith_sqlite.dir/all:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_sqlite.dir/build.make CMakeFiles/pith_sqlite.dir/depend
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_sqlite.dir/build.make CMakeFiles/pith_sqlite.dir/build
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/celdridge/projects/pith/pith_lang/build/CMakeFiles --progress-num=62,63 "Built target pith_sqlite"
+.PHONY : CMakeFiles/pith_sqlite.dir/all
+
+# Build rule for subdir invocation for target.
+CMakeFiles/pith_sqlite.dir/rule: cmake_check_build_system
+	$(CMAKE_COMMAND) -E cmake_progress_start /home/celdridge/projects/pith/pith_lang/build/CMakeFiles 2
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/pith_sqlite.dir/all
+	$(CMAKE_COMMAND) -E cmake_progress_start /home/celdridge/projects/pith/pith_lang/build/CMakeFiles 0
+.PHONY : CMakeFiles/pith_sqlite.dir/rule
+
+# Convenience name for target.
+pith_sqlite: CMakeFiles/pith_sqlite.dir/rule
+.PHONY : pith_sqlite
+
+# clean rule for target.
+CMakeFiles/pith_sqlite.dir/clean:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_sqlite.dir/build.make CMakeFiles/pith_sqlite.dir/clean
+.PHONY : CMakeFiles/pith_sqlite.dir/clean
 
 #=============================================================================
 # Target rules for target _deps/raylib-build/CMakeFiles/uninstall.dir
@@ -200,7 +229,7 @@ _deps/raylib-build/CMakeFiles/uninstall.dir/clean:
 _deps/raylib-build/raylib/CMakeFiles/raylib.dir/all: _deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/all
 	$(MAKE) $(MAKESILENT) -f _deps/raylib-build/raylib/CMakeFiles/raylib.dir/build.make _deps/raylib-build/raylib/CMakeFiles/raylib.dir/depend
 	$(MAKE) $(MAKESILENT) -f _deps/raylib-build/raylib/CMakeFiles/raylib.dir/build.make _deps/raylib-build/raylib/CMakeFiles/raylib.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/celdridge/projects/pith/pith_lang/build/CMakeFiles --progress-num=59,60,61,62,63,64,65,66 "Built target raylib"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/celdridge/projects/pith/pith_lang/build/CMakeFiles --progress-num=64,65,66,67,68,69,70,71 "Built target raylib"
 .PHONY : _deps/raylib-build/raylib/CMakeFiles/raylib.dir/all
 
 # Build rule for subdir invocation for target.
@@ -252,7 +281,7 @@ _deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/clean:
 _deps/raylib-build/raylib/external/glfw/src/CMakeFiles/update_mappings.dir/all:
 	$(MAKE) $(MAKESILENT) -f _deps/raylib-build/raylib/external/glfw/src/CMakeFiles/update_mappings.dir/build.make _deps/raylib-build/raylib/external/glfw/src/CMakeFiles/update_mappings.dir/depend
 	$(MAKE) $(MAKESILENT) -f _deps/raylib-build/raylib/external/glfw/src/CMakeFiles/update_mappings.dir/build.make _deps/raylib-build/raylib/external/glfw/src/CMakeFiles/update_mappings.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/celdridge/projects/pith/pith_lang/build/CMakeFiles --progress-num=67 "Built target update_mappings"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/celdridge/projects/pith/pith_lang/build/CMakeFiles --progress-num=72 "Built target update_mappings"
 .PHONY : _deps/raylib-build/raylib/external/glfw/src/CMakeFiles/update_mappings.dir/all
 
 # Build rule for subdir invocation for target.

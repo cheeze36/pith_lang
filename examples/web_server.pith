@@ -1,0 +1,66 @@
+###
+# A small Pith web app. Run it from the pith_lang directory, then open
+# http://localhost:8080
+#
+#     ./build/pith_lang examples/web_server.pith
+#
+# Shows routes with path parameters, query strings, form posts, a JSON API,
+# redirects, static files and error handling: a handler that raises an error
+# (try /crash) becomes a 500 response and the server keeps running.
+###
+
+import "http"
+import "json"
+
+int server = http.listen(8080)
+map<string, int> visits
+
+define void count_visit(map<string, string> req):
+    string path = req["path"]
+    visits[path] = visits.get(path, 0) + 1
+
+define void home(map<string, string> req):
+    count_visit(req)
+    string page = "<link rel=\"stylesheet\" href=\"/assets/style.css\">"
+    page = page + "<h1>Hello from Pith!</h1>"
+    page = page + "<p><a href=\"/hello/World\">/hello/World</a> - a path parameter</p>"
+    page = page + "<p><a href=\"/search?q=pith+lang\">/search?q=pith+lang</a> - a query string</p>"
+    page = page + "<p><a href=\"/api/stats\">/api/stats</a> - JSON</p>"
+    page = page + "<form method=\"post\" action=\"/echo\"><input name=\"message\"> <button>Send</button></form>"
+    http.respond(server, 200, page, "text/html; charset=utf-8")
+
+define void hello(map<string, string> req):
+    count_visit(req)
+    http.respond(server, 200, "Hello, " + http.param(req, "name") + "!")
+
+define void search(map<string, string> req):
+    count_visit(req)
+    map<string, string> query = http.parse_query(req["query"])
+    http.respond(server, 200, "You searched for: " + query.get("q", "(nothing)"))
+
+define void echo(map<string, string> req):
+    count_visit(req)
+    map<string, string> form = http.parse_query(req["body"])
+    http.respond(server, 200, "You said: " + form.get("message", ""))
+
+define void stats(map<string, string> req):
+    map<string, string> headers = {"Content-Type": "application/json", "Cache-Control": "no-store"}
+    http.respond(server, 200, json.encode(visits), headers)
+
+define void old_home(map<string, string> req):
+    http.respond(server, 301, "", {"Location": "/"})
+
+define void crash(map<string, string> req):
+    int oops = 1 / 0
+
+http.route(server, "GET", "/", home)
+http.route(server, "GET", "/hello/:name", hello)
+http.route(server, "GET", "/search", search)
+http.route(server, "POST", "/echo", echo)
+http.route(server, "GET", "/api/stats", stats)
+http.route(server, "GET", "/old", old_home)
+http.route(server, "GET", "/crash", crash)
+http.static(server, "/assets", "examples/public")
+
+print("Listening on http://localhost:8080 (Ctrl+C to stop)")
+http.serve(server)

@@ -1,0 +1,63 @@
+###
+# Tests for the math module additions (min, max, round, clamp, PI, E)
+# and the random module (seed, int, float, choice, shuffle).
+#
+# Random values are non-deterministic across platforms, so these tests check
+# *properties* (range, reproducibility, membership) rather than exact values.
+###
+
+import "math"
+import "random"
+
+# --- Math additions ---
+print("--- Math ---")
+print(math.min(3, 7))          # smaller int
+print(math.max(3, 7))          # larger int
+print(math.min(2.5, 1.5))      # float-preserving
+print(math.max(2.5, 1.5))
+print(math.round(2.4))         # down
+print(math.round(2.6))         # up
+print(math.round(2.5))         # half away from zero
+print(math.clamp(15, 0, 10))   # above range -> hi
+print(math.clamp(-5, 0, 10))   # below range -> lo
+print(math.clamp(5, 0, 10))    # inside range -> unchanged
+
+# Constants: test via round() so the check does not depend on float formatting.
+print(math.round(math.PI * 100))   # 314
+print(math.round(math.E * 100))    # 272
+
+# --- Random ---
+print("--- Random ---")
+
+# Same seed -> same sequence (reproducibility).
+random.seed(42)
+int a = random.int(1, 6)
+random.seed(42)
+int b = random.int(1, 6)
+print(a == b)
+
+# random.int(1, 6) always lands in [1, 6].
+random.seed(1)
+bool in_range = true
+for (int i = 0; i < 1000; i = i + 1):
+    int r = random.int(1, 6)
+    if (r < 1 or r > 6):
+        in_range = false
+print(in_range)
+
+# random.float() lands in [0.0, 1.0).
+random.seed(1)
+float f = random.float()
+print(f >= 0.0 and f < 1.0)
+
+# random.choice() returns an element that is actually in the list.
+list<int> items = [10, 20, 30]
+random.seed(7)
+int c = random.choice(items)
+print(c == 10 or c == 20 or c == 30)
+
+# random.shuffle() keeps every element (length is preserved).
+list<int> deck = [1, 2, 3, 4, 5]
+random.seed(99)
+random.shuffle(deck)
+print(deck.len())

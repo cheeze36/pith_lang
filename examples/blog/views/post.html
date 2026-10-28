@@ -1,0 +1,39 @@
+{{> header}}
+<article class="post">
+  <h1>{{post.title}}</h1>
+  <p class="meta">by {{post.author}} on {{date post.created}}{{#if post.updated != post.created}} (edited {{date post.updated}}){{/if}}</p>
+  {{#each paragraphs post.body as paragraph}}
+  <p>{{paragraph}}</p>
+  {{/each}}
+  {{#if is_author}}
+  <div class="actions">
+    <a href="/posts/{{post.slug}}/edit">Edit</a>
+    <form class="inline" method="post" action="/posts/{{post.slug}}/delete">
+      <input type="hidden" name="csrf" value="{{csrf}}">
+      <button class="danger">Delete</button>
+    </form>
+  </div>
+  {{/if}}
+</article>
+
+<section id="comments">
+  <h2>Comments ({{comments.len()}})</h2>
+  {{#each comments as comment}}
+  <div class="comment">
+    <p class="meta">{{comment.author}} on {{date comment.created}}</p>
+    <p>{{comment.body}}</p>
+  </div>
+  {{else}}
+  <p class="empty">No comments yet.</p>
+  {{/each}}
+  {{#if logged_in}}
+  <form method="post" action="/posts/{{post.slug}}/comments">
+    <input type="hidden" name="csrf" value="{{csrf}}">
+    <textarea name="body" rows="3" required placeholder="Add a comment"></textarea>
+    <button>Comment</button>
+  </form>
+  {{else}}
+  <p><a href="/login">Log in</a> to comment.</p>
+  {{/if}}
+</section>
+{{> footer}}

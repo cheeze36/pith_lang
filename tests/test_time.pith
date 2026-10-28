@@ -1,0 +1,35 @@
+###
+# Tests for the time module (sleep, sleep_ms, now, millis, perf, format).
+#
+# Wall-clock values differ on every run, so these tests check *properties*
+# (elapsed time is at least what was slept, formats have the right shape)
+# rather than exact values.
+###
+
+import "time"
+
+# sleep() accepts float seconds and actually waits.
+float start = time.perf()
+time.sleep(0.1)
+float elapsed = time.perf() - start
+print(elapsed >= 0.09 and elapsed < 1.0)
+
+# sleep() accepts int seconds too (0 returns immediately).
+time.sleep(0)
+print(true)
+
+# sleep_ms() waits the given milliseconds; millis() is monotonic.
+int ms_start = time.millis()
+time.sleep_ms(50)
+int ms_elapsed = time.millis() - ms_start
+print(ms_elapsed >= 45 and ms_elapsed < 1000)
+
+# now() is a plausible Unix timestamp (after 2020-01-01).
+print(time.now() > 1577836800)
+
+# format() with an explicit timestamp. "%Y" of a mid-year 2001 timestamp is
+# 2001 in every time zone.
+print(time.format("%Y", 994000000))
+
+# format() of the current time yields a 4-digit year.
+print(time.format("%Y").len())

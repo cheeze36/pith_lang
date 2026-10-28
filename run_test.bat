@@ -45,6 +45,10 @@ SET TEST_NAMES=^
     test_regex ^
     test_crypto ^
     test_robustness ^
+    test_buffer ^
+    test_sqlite ^
+    test_template ^
+    test_return ^
     test_integer ^
     math_random
 

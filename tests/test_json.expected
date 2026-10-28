@@ -1,0 +1,33 @@
+42
+-2.5
+3.0
+true
+null
+"quote \" backslash \\ newline \n tab \t nul \u0000 é"
+[1,2,3]
+{"ann":3,"bob":5}
+{"nested":[1,[2,[3]]],"empty":[],"obj":{}}
+{"name":"ann","age":30,"tags":["admin"],"friend":null}
+json.encode(): cannot encode a value of type class.
+Pith 2 2 0.5 true
+true
+[name, tags, age, ratio, ok, none]
+3
+[1.000000, 2.500000, -300.000000]
+Type mismatch: variable 'wrong' expects list<int>, got list.
+8
+8.000000
+true
+tab	quote"slash/ é 😀
+20
+true
+json.decode(): expected a string key in object at byte 1.
+json.decode(): expected ',' or ']' in array at byte 5.
+json.decode(): expected ':' after object key at byte 5.
+json.decode(): unexpected character at byte 0.
+json.decode(): unterminated string at byte 13.
+json.decode(): unexpected character at byte 3.
+json.decode(): unexpected text after the JSON value at byte 1.
+json.decode(): unexpected text after the JSON value at byte 2.
+json.decode(): unpaired surrogate in \u escape at byte 7.
+json.decode(): unexpected end of input at byte 0.

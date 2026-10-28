@@ -1,0 +1,555 @@
+###
+# A small multi-user blog written in Pith.
+#
+# It exercises most of the standard library at once:
+#   http      routes with parameters, forms, query strings, cookies, redirects, static files
+#   sqlite    users, sessions, posts and comments, with foreign keys and cascades
+#   crypto    password hashing, unguessable session tokens, CSRF tokens (HMAC)
+#   template  pages built from shared partials, with helper functions
+#   json      a read-only JSON API
+#   regex     URL slugs and username validation
+#   buffer    the RSS feed is assembled in a buffer
+#   time, io, sys, encoding   dates, file paths, configuration, hex/base64
+#
+# Run it from anywhere (paths are relative to this file):
+#     ./build/pith_lang examples/blog/blog.pith
+# then open http://localhost:8080
+#
+# Configuration (environment variables, all optional):
+#     BLOG_PORT    port to listen on (default 8080)
+#     BLOG_DB      SQLite database file (default: blog.db next to this file)
+#     BLOG_SECRET  secret for CSRF tokens; set it so tokens survive restarts
+###
+
+import "http"
+import "sqlite"
+import "template"
+import "crypto"
+import "encoding"
+import "json"
+import "regex"
+import "time"
+import "io"
+import "sys"
+
+# --- Configuration ---
+
+string base_directory = io.dirname(sys.script())
+int port = int(sys.env("BLOG_PORT", "8080"))
+string database_path = sys.env("BLOG_DB", io.join_path(base_directory, "blog.db"))
+string secret = sys.env("BLOG_SECRET", "")
+if (secret == ""):
+    secret = crypto.random_token()
+    print("Note: BLOG_SECRET is not set; using a random secret for this run.")
+
+int posts_per_page = 5
+int max_title_length = 200
+int max_body_length = 20000
+int max_comment_length = 2000
+
+# --- Database ---
+
+Database db = sqlite.open(database_path)
+db.execute_script("
+    CREATE TABLE IF NOT EXISTS users (
+        id            INTEGER PRIMARY KEY,
+        username      TEXT NOT NULL UNIQUE,
+        password_hash TEXT NOT NULL,
+        created       INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS sessions (
+        token_hash TEXT PRIMARY KEY,
+        user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created    INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS posts (
+        id        INTEGER PRIMARY KEY,
+        slug      TEXT NOT NULL UNIQUE,
+        title     TEXT NOT NULL,
+        body      TEXT NOT NULL,
+        author_id INTEGER NOT NULL REFERENCES users(id),
+        created   INTEGER NOT NULL,
+        updated   INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS comments (
+        id        INTEGER PRIMARY KEY,
+        post_id   INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+        author_id INTEGER NOT NULL REFERENCES users(id),
+        body      TEXT NOT NULL,
+        created   INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS posts_by_date ON posts(created);
+    CREATE INDEX IF NOT EXISTS comments_by_post ON comments(post_id);
+")
+
+# --- Text helpers ---
+
+Regex slug_unsafe = regex.compile(r"[^a-z0-9]+")
+Regex slug_edges = regex.compile(r"^-+|-+$")
+Regex valid_username = regex.compile(r"^[A-Za-z0-9_]{3,20}$")
+Regex blank_lines = regex.compile(r"\n\s*\n")
+
+# "Hello, World!" -> "hello-world"
+define string slugify(string title):
+    string slug = slug_edges.replace(slug_unsafe.replace(title.lower(), "-"), "")
+    if (slug == ""):
+        return "post"
+    return slug[:80]
+
+# A slug no other post uses: "hello", then "hello-2", "hello-3", ...
+define string unique_slug(string title):
+    string base = slugify(title)
+    string candidate = base
+    int suffix = 2
+    while (db.query("SELECT 1 FROM posts WHERE slug = ?", [candidate]).len() > 0):
+        candidate = base + "-" + str(suffix)
+        suffix = suffix + 1
+    return candidate
+
+# The first max_characters characters (not bytes) of text, with "..." if cut.
+define string excerpt(string text, int max_characters):
+    if (text.count() <= max_characters):
+        return text
+    list<string> characters = text.split("")
+    list<string> kept = []
+    for (int i = 0; i < max_characters; i = i + 1):
+        kept.append(characters[i])
+    return kept.join("").trim() + "..."
+
+# Paragraphs of a post body, split on blank lines (each is escaped when shown).
+define list<string> paragraphs(string text):
+    list<string> result = []
+    foreach (string part in blank_lines.split(text.replace("\r\n", "\n"))):
+        string trimmed = part.trim()
+        if (trimmed != ""):
+            result.append(trimmed)
+    return result
+
+define string format_date(int timestamp):
+    return time.format("%B %d, %Y", timestamp)
+
+# --- Templates ---
+
+# Loads views/<name>.html with the helpers every page may use.
+define Template load_view(string name):
+    Template view = template.load(io.join_path(base_directory, "views", name + ".html"))
+    view.helper("date", format_date)
+    view.helper("paragraphs", paragraphs)
+    view.helper("excerpt", excerpt)
+    return view
+
+map<string, Template> views = {}
+foreach (string name in ["index", "post", "post_form", "login", "register", "search", "message"]):
+    views[name] = load_view(name)
+
+# --- Sessions, users and CSRF protection ---
+
+# The value of cookie `name` in the request, or "".
+define string cookie_value(map<string, string> request, string name):
+    foreach (string part in http.header(request, "Cookie").split(";")):
+        string trimmed = part.trim()
+        if (trimmed.startswith(name + "=")):
+            return trimmed[name.len() + 1:]
+    return ""
+
+# Session tokens are stored hashed, so a leaked database cannot be used to log in.
+define string hash_token(string token):
+    return encoding.hex_encode(crypto.sha256(token))
+
+# The logged-in user's id, or 0 when nobody is logged in.
+define int current_user_id(map<string, string> request):
+    string token = cookie_value(request, "session")
+    if (token == ""):
+        return 0
+    list<map> rows = db.query("SELECT user_id FROM sessions WHERE token_hash = ?", [hash_token(token)])
+    if (rows.len() == 0):
+        return 0
+    return rows[0]["user_id"]
+
+define string username_of(int user_id):
+    return db.query("SELECT username FROM users WHERE id = ?", [user_id])[0]["username"]
+
+# Creates a session and returns the Set-Cookie header value for it.
+define string start_session(int user_id):
+    string token = crypto.random_token()
+    db.execute("INSERT INTO sessions (token_hash, user_id, created) VALUES (?, ?, ?)",
+               [hash_token(token), user_id, time.now()])
+    return "session=" + token + "; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000"
+
+# A CSRF token tied to the session: forms include it, and every state-changing
+# POST checks it, so another site cannot submit forms on a user's behalf.
+define string csrf_token(map<string, string> request):
+    string session = cookie_value(request, "session")
+    if (session == ""):
+        return ""
+    return encoding.base64url_encode(crypto.hmac_sha256(secret, "csrf:" + session))
+
+define bool csrf_valid(map<string, string> request, map<string, string> form):
+    string expected = csrf_token(request)
+    return expected != "" and form.has("csrf") and crypto.timing_safe_equal(form["csrf"], expected)
+
+# --- Responses ---
+
+# Values every page's header needs: the title and who is logged in.
+define map page_data(map<string, string> request, string title):
+    int user_id = current_user_id(request)
+    map data = {"page_title": title, "logged_in": user_id != 0, "username": "", "csrf": csrf_token(request)}
+    if (user_id != 0):
+        data["username"] = username_of(user_id)
+    return data
+
+define void send_page(int status, string view, map data):
+    http.respond(server, status, views[view].render(data), "text/html; charset=utf-8")
+
+define void redirect(string location):
+    http.respond(server, 303, "", {"Location": location})
+
+define void send_message(map<string, string> request, int status, string heading, string text):
+    map data = page_data(request, heading)
+    data["heading"] = heading
+    data["text"] = text
+    send_page(status, "message", data)
+
+define void not_found(map<string, string> request):
+    send_message(request, 404, "Not found", "There is nothing at this address.")
+
+define void forbidden(map<string, string> request, string text):
+    send_message(request, 403, "Not allowed", text)
+
+# The form fields of a POST request.
+define map<string, string> form_of(map<string, string> request):
+    return http.parse_query(request["body"])
+
+# --- Posts ---
+
+# The post with this slug and its author's name; an empty list if there is none.
+define list<map> find_post(string slug):
+    return db.query("SELECT posts.id, slug, title, body, posts.created, updated, author_id, username AS author " +
+                    "FROM posts JOIN users ON users.id = posts.author_id WHERE slug = ?", [slug])
+
+# Checks a post form; returns an error message, or "" if it is fine.
+define string post_form_error(string title, string body):
+    if (title.trim() == ""):
+        return "The title is required."
+    if (title.count() > max_title_length):
+        return "The title is too long (at most " + str(max_title_length) + " characters)."
+    if (body.trim() == ""):
+        return "The post needs some text."
+    if (body.count() > max_body_length):
+        return "The post is too long (at most " + str(max_body_length) + " characters)."
+    return ""
+
+# GET /?page=N - newest posts first, a page at a time
+define void show_index(map<string, string> request):
+    map<string, string> query = http.parse_query(request["query"])
+    int page = 1
+    try:
+        page = int(query.get("page", "1"))
+    rescue error:
+        send_message(request, 400, "Bad request", "The page number must be a whole number.")
+        return
+    if (page < 1):
+        send_message(request, 400, "Bad request", "The page number must be 1 or more.")
+        return
+
+    int total = db.query("SELECT count(*) AS n FROM posts")[0]["n"]
+    list<map> posts = db.query(
+        "SELECT slug, title, body, posts.created, username AS author, " +
+        "(SELECT count(*) FROM comments WHERE post_id = posts.id) AS comment_count " +
+        "FROM posts JOIN users ON users.id = posts.author_id " +
+        "ORDER BY posts.created DESC, posts.id DESC LIMIT ? OFFSET ?",
+        [posts_per_page, (page - 1) * posts_per_page])
+    map data = page_data(request, "Latest posts")
+    data["posts"] = posts
+    data["page"] = page
+    data["has_previous"] = page > 1
+    data["has_next"] = page * posts_per_page < total
+    send_page(200, "index", data)
+
+# GET /posts/:slug
+define void show_post(map<string, string> request):
+    list<map> found = find_post(http.param(request, "slug"))
+    if (found.len() == 0):
+        not_found(request)
+        return
+    map post = found[0]
+    int post_id = post["id"]
+    int author_id = post["author_id"]
+    string title = post["title"]
+    map data = page_data(request, title)
+    data["post"] = post
+    data["is_author"] = current_user_id(request) == author_id
+    data["comments"] = db.query("SELECT body, comments.created, username AS author FROM comments " +
+                                "JOIN users ON users.id = comments.author_id WHERE post_id = ? " +
+                                "ORDER BY comments.created, comments.id", [post_id])
+    send_page(200, "post", data)
+
+# Renders the new/edit post form, optionally with an error and the entered values.
+define void send_post_form(map<string, string> request, int status, string action, string heading, string title,
+                           string body, string error):
+    map data = page_data(request, heading)
+    data["heading"] = heading
+    data["action"] = action
+    data["title"] = title
+    data["body"] = body
+    data["error"] = error
+    send_page(status, "post_form", data)
+
+# GET /new
+define void new_post_form(map<string, string> request):
+    if (current_user_id(request) == 0):
+        redirect("/login")
+        return
+    send_post_form(request, 200, "/new", "New post", "", "", "")
+
+# POST /new
+define void create_post(map<string, string> request):
+    int user_id = current_user_id(request)
+    map<string, string> form = form_of(request)
+    if (user_id == 0):
+        redirect("/login")
+        return
+    if (!csrf_valid(request, form)):
+        forbidden(request, "The form has expired. Go back, reload the page and try again.")
+        return
+    string title = form.get("title", "").trim()
+    string body = form.get("body", "")
+    string error = post_form_error(title, body)
+    if (error != ""):
+        send_post_form(request, 422, "/new", "New post", title, body, error)
+        return
+    string slug = unique_slug(title)
+    int now = time.now()
+    db.execute("INSERT INTO posts (slug, title, body, author_id, created, updated) VALUES (?, ?, ?, ?, ?, ?)",
+               [slug, title, body, user_id, now, now])
+    redirect("/posts/" + slug)
+
+# The post a request refers to, if the logged-in user wrote it. Otherwise the
+# right response has been sent and an empty list is returned.
+define list<map> own_post(map<string, string> request):
+    list<map> found = find_post(http.param(request, "slug"))
+    if (found.len() == 0):
+        not_found(request)
+        return []
+    int author_id = found[0]["author_id"]
+    if (current_user_id(request) != author_id):
+        forbidden(request, "Only the author can change this post.")
+        return []
+    return found
+
+# GET /posts/:slug/edit
+define void edit_post_form(map<string, string> request):
+    list<map> found = own_post(request)
+    if (found.len() == 0):
+        return
+    map post = found[0]
+    string slug = post["slug"]
+    send_post_form(request, 200, "/posts/" + slug + "/edit", "Edit post", post["title"], post["body"], "")
+
+# POST /posts/:slug/edit
+define void update_post(map<string, string> request):
+    list<map> found = own_post(request)
+    if (found.len() == 0):
+        return
+    map<string, string> form = form_of(request)
+    if (!csrf_valid(request, form)):
+        forbidden(request, "The form has expired. Go back, reload the page and try again.")
+        return
+    string slug = found[0]["slug"]
+    string title = form.get("title", "").trim()
+    string body = form.get("body", "")
+    string error = post_form_error(title, body)
+    if (error != ""):
+        send_post_form(request, 422, "/posts/" + slug + "/edit", "Edit post", title, body, error)
+        return
+    db.execute("UPDATE posts SET title = ?, body = ?, updated = ? WHERE slug = ?", [title, body, time.now(), slug])
+    redirect("/posts/" + slug)
+
+# POST /posts/:slug/delete
+define void delete_post(map<string, string> request):
+    list<map> found = own_post(request)
+    if (found.len() == 0):
+        return
+    if (!csrf_valid(request, form_of(request))):
+        forbidden(request, "The form has expired. Go back, reload the page and try again.")
+        return
+    db.execute("DELETE FROM posts WHERE id = ?", [found[0]["id"]])   # comments go too (ON DELETE CASCADE)
+    redirect("/")
+
+# POST /posts/:slug/comments
+define void add_comment(map<string, string> request):
+    int user_id = current_user_id(request)
+    if (user_id == 0):
+        redirect("/login")
+        return
+    list<map> found = find_post(http.param(request, "slug"))
+    if (found.len() == 0):
+        not_found(request)
+        return
+    map<string, string> form = form_of(request)
+    if (!csrf_valid(request, form)):
+        forbidden(request, "The form has expired. Go back, reload the page and try again.")
+        return
+    string body = form.get("body", "").trim()
+    string slug = found[0]["slug"]
+    if (body == "" or body.count() > max_comment_length):
+        send_message(request, 422, "Comment not saved",
+                     "A comment needs between 1 and " + str(max_comment_length) + " characters.")
+        return
+    db.execute("INSERT INTO comments (post_id, author_id, body, created) VALUES (?, ?, ?, ?)",
+               [found[0]["id"], user_id, body, time.now()])
+    redirect("/posts/" + slug + "#comments")
+
+# --- Accounts ---
+
+define void send_account_form(map<string, string> request, int status, string view, string heading, string username,
+                              string error):
+    map data = page_data(request, heading)
+    data["username_value"] = username
+    data["error"] = error
+    send_page(status, view, data)
+
+# GET /register
+define void register_form(map<string, string> request):
+    send_account_form(request, 200, "register", "Create an account", "", "")
+
+# POST /register
+define void register(map<string, string> request):
+    map<string, string> form = form_of(request)
+    string username = form.get("username", "").trim()
+    string password = form.get("password", "")
+    if (!valid_username.test(username)):
+        send_account_form(request, 422, "register", "Create an account", username,
+                          "Usernames are 3 to 20 letters, digits or underscores.")
+        return
+    if (password.len() < 8):
+        send_account_form(request, 422, "register", "Create an account", username,
+                          "The password must be at least 8 characters.")
+        return
+    try:
+        db.execute("INSERT INTO users (username, password_hash, created) VALUES (?, ?, ?)",
+                   [username, crypto.hash_password(password), time.now()])
+    rescue error:
+        if (error.contains("UNIQUE")):
+            send_account_form(request, 422, "register", "Create an account", username, "That username is taken.")
+            return
+        raise error
+    http.respond(server, 303, "", {"Location": "/", "Set-Cookie": start_session(db.last_insert_id())})
+
+# GET /login
+define void login_form(map<string, string> request):
+    send_account_form(request, 200, "login", "Log in", "", "")
+
+# POST /login
+define void login(map<string, string> request):
+    map<string, string> form = form_of(request)
+    string username = form.get("username", "").trim()
+    list<map> users = db.query("SELECT id, password_hash FROM users WHERE username = ?", [username])
+    # The same message whether the user or the password is wrong, so the form
+    # cannot be used to find out which usernames exist.
+    if (users.len() == 0 or !crypto.verify_password(form.get("password", ""), users[0]["password_hash"])):
+        send_account_form(request, 401, "login", "Log in", username, "Wrong username or password.")
+        return
+    http.respond(server, 303, "", {"Location": "/", "Set-Cookie": start_session(users[0]["id"])})
+
+# POST /logout
+define void logout(map<string, string> request):
+    if (!csrf_valid(request, form_of(request))):
+        forbidden(request, "The form has expired. Go back, reload the page and try again.")
+        return
+    db.execute("DELETE FROM sessions WHERE token_hash = ?", [hash_token(cookie_value(request, "session"))])
+    http.respond(server, 303, "", {"Location": "/", "Set-Cookie": "session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0"})
+
+# --- Search, JSON API and RSS ---
+
+# GET /search?q=words - posts whose title or text contains the words
+define void search(map<string, string> request):
+    string words = http.parse_query(request["query"]).get("q", "").trim()
+    map data = page_data(request, "Search")
+    data["query"] = words
+    data["searched"] = words != ""
+    data["results"] = []
+    if (words != ""):
+        # Escape LIKE's wildcards so the words are matched literally.
+        string pattern = "%" + words.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        data["results"] = db.query("SELECT slug, title, body, created FROM posts " +
+                                   "WHERE title LIKE ? ESCAPE '\\' OR body LIKE ? ESCAPE '\\' " +
+                                   "ORDER BY created DESC LIMIT 50", [pattern, pattern])
+    send_page(200, "search", data)
+
+define void send_json(int status, string text):
+    http.respond(server, status, text, {"Content-Type": "application/json", "Cache-Control": "no-store"})
+
+# GET /api/posts
+define void api_posts(map<string, string> request):
+    list<map> rows = db.query("SELECT slug, title, body, posts.created, username AS author FROM posts " +
+                              "JOIN users ON users.id = posts.author_id ORDER BY posts.created DESC, posts.id DESC")
+    list<map> posts = []
+    foreach (map row in rows):
+        string body = row["body"]
+        posts.append({"slug": row["slug"], "title": row["title"], "author": row["author"],
+                      "created": row["created"], "excerpt": excerpt(body, 120)})
+    send_json(200, json.encode({"posts": posts}))
+
+# GET /api/posts/:slug
+define void api_post(map<string, string> request):
+    list<map> found = find_post(http.param(request, "slug"))
+    if (found.len() == 0):
+        send_json(404, json.encode({"error": "not found"}))
+        return
+    map post = found[0]
+    send_json(200, json.encode({"slug": post["slug"], "title": post["title"], "author": post["author"],
+                                "created": post["created"], "updated": post["updated"], "body": post["body"]}))
+
+# GET /feed.xml - RSS 2.0 feed of the newest posts, assembled in a buffer
+define void feed(map<string, string> request):
+    buffer xml = buffer(4096)
+    xml.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\"><channel>")
+    xml.append("<title>Pith blog</title><link>/</link><description>Latest posts</description>")
+    foreach (map post in db.query("SELECT slug, title, body, created FROM posts ORDER BY created DESC LIMIT 20")):
+        string title = post["title"]
+        string slug = post["slug"]
+        string body = post["body"]
+        int created = post["created"]
+        xml.append("<item><title>" + template.escape(title) + "</title>")
+        xml.append("<link>/posts/" + template.escape(slug) + "</link>")
+        xml.append("<pubDate>" + time.format("%a, %d %b %Y %H:%M:%S %z", created) + "</pubDate>")
+        xml.append("<description>" + template.escape(excerpt(body, 200)) + "</description></item>")
+    xml.append("</channel></rss>\n")
+    http.respond(server, 200, xml.to_string(), "application/rss+xml; charset=utf-8")
+    xml.free()
+
+# POST /stop - only enabled when BLOG_ALLOW_STOP=1 (used by the automated tests)
+define void stop(map<string, string> request):
+    http.respond(server, 200, "stopping")
+    http.stop(server)
+
+# --- Routes ---
+
+int server = http.listen(port)
+http.route(server, "GET", "/", show_index)
+http.route(server, "GET", "/posts/:slug", show_post)
+http.route(server, "GET", "/new", new_post_form)
+http.route(server, "POST", "/new", create_post)
+http.route(server, "GET", "/posts/:slug/edit", edit_post_form)
+http.route(server, "POST", "/posts/:slug/edit", update_post)
+http.route(server, "POST", "/posts/:slug/delete", delete_post)
+http.route(server, "POST", "/posts/:slug/comments", add_comment)
+http.route(server, "GET", "/register", register_form)
+http.route(server, "POST", "/register", register)
+http.route(server, "GET", "/login", login_form)
+http.route(server, "POST", "/login", login)
+http.route(server, "POST", "/logout", logout)
+http.route(server, "GET", "/search", search)
+http.route(server, "GET", "/api/posts", api_posts)
+http.route(server, "GET", "/api/posts/:slug", api_post)
+http.route(server, "GET", "/feed.xml", feed)
+http.static(server, "/static", io.join_path(base_directory, "public"))
+if (sys.env("BLOG_ALLOW_STOP", "") == "1"):
+    http.route(server, "POST", "/stop", stop)
+
+print("Blog running at http://localhost:" + str(port) + " (database: " + database_path + ")")
+http.serve(server)
+http.close(server)
+db.close()
+print("Blog stopped.")

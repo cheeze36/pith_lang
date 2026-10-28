@@ -1,0 +1,155 @@
+###
+# Tests for try / rescue / else / finally and raise.
+###
+
+import "integer"
+
+# --- rescue catches a raised error and binds its message ---
+try:
+    raise "boom"
+rescue e:
+    print("rescued: " + e)
+
+# --- rescue catches interpreter errors (division by zero used to crash) ---
+try:
+    int z = 1 / 0
+    print("not reached")
+rescue e:
+    print("rescued: " + e)
+
+try:
+    int m = 7 % 0
+rescue e:
+    print("rescued: " + e)
+
+# --- rescue without a variable ---
+try:
+    raise "ignored"
+rescue:
+    print("rescued without a name")
+
+# --- else runs only when nothing was raised; finally always runs ---
+try:
+    print("body ok")
+rescue e:
+    print("not reached")
+else:
+    print("else ran")
+finally:
+    print("finally ran")
+
+try:
+    raise "bad"
+rescue e:
+    print("rescued: " + e)
+else:
+    print("not reached")
+finally:
+    print("finally ran")
+
+# --- errors raised deep inside function calls unwind to the try ---
+define inner(int n):
+    if (n == 0):
+        raise "bottom reached"
+    return inner(n - 1)
+
+try:
+    inner(50)
+rescue e:
+    print("rescued: " + e)
+
+# --- the rescue variable works inside functions (local slots) ---
+define safe_divide(int a, int b):
+    try:
+        return a / b
+    rescue e:
+        print("safe_divide: " + e)
+        return -1
+
+print(safe_divide(10, 2))
+print(safe_divide(1, 0))
+
+# --- finally runs on return, and the return value is kept ---
+define with_cleanup():
+    try:
+        return "returned"
+    finally:
+        print("cleanup before return")
+
+print(with_cleanup())
+
+# --- finally runs on break and continue ---
+for (int i = 0; i < 3; i = i + 1):
+    try:
+        if (i == 1):
+            continue
+        if (i == 2):
+            break
+        print("loop body " + integer.toString(i))
+    finally:
+        print("loop finally " + integer.toString(i))
+
+# --- an error raised in rescue still runs finally, then reaches the outer try ---
+try:
+    try:
+        raise "first"
+    rescue e:
+        raise "second from rescue"
+    finally:
+        print("inner finally")
+rescue e:
+    print("outer rescued: " + e)
+
+# --- try/finally without rescue: finally runs, error keeps propagating ---
+try:
+    try:
+        raise "passes through"
+    finally:
+        print("finally without rescue")
+rescue e:
+    print("outer rescued: " + e)
+
+# --- errors in else are not rescued by the same try ---
+try:
+    try:
+        print("body ok")
+    rescue e:
+        print("not reached")
+    else:
+        raise "from else"
+rescue e:
+    print("outer rescued: " + e)
+
+# --- re-raising a rescued error ---
+try:
+    try:
+        raise "original"
+    rescue e:
+        raise e
+rescue e:
+    print("re-raised: " + e)
+
+# --- the program keeps running normally after rescued errors ---
+list<int> numbers = [1, 2, 3]
+int total = 0
+foreach (int n in numbers):
+    total = total + n
+print("total " + integer.toString(total))
+
+# --- the rescue variable is scoped to the rescue block ---
+string e = "outer e"
+try:
+    raise "inner"
+rescue e:
+    print("in rescue: " + e)
+print("after: " + e)
+
+# --- a loop that keeps going after each failure (server-style) ---
+list<int> divisors = [2, 0, 5]
+foreach (int d in divisors):
+    try:
+        print(100 / d)
+    rescue err:
+        print("skipped: " + err)
+
+print("done")

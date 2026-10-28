@@ -1,0 +1,67 @@
+0
+0.000000
+0
+false
+0
+1
+Type mismatch: variable 'bad' expects int, got string.
+Type mismatch: variable 'n' expects int, got string.
+Type mismatch: variable 'k' expects int, got float.
+5.000000
+7.000000
+3.500000
+2
+2.500000
+Operator '+' cannot be applied to string and int.
+Operator '+' cannot be applied to bool and int.
+Cannot compare int with string using '=='.
+n=5
+true
+true
+true
+true
+1.500000
+The condition of 'if' must be a bool, got int.
+The condition of 'while' must be a bool, got string.
+false
+true
+Left operand of 'or' must be a bool, got int.
+5
+Type mismatch: argument 2 ('b') of 'add' expects int, got string.
+'add' expects 2 arguments, got 1.
+2.500000
+Type mismatch: return value of 'broken' expects int, got string.
+'forgets' must return int, but returned nothing.
+quiet ran
+[0, 2, 4, 6]
+hi pith
+local: Type mismatch: variable 'x' expects int, got string.
+Type mismatch: append() element expects int, got string.
+Type mismatch: list element expects int, got string.
+Type mismatch: variable 'mixed' expects list<int>, got list.
+[1.000000, 2.500000]
+Type mismatch: variable 'wrong' expects list<string>, got list<int>.
+Type mismatch: loop variable 's' expects string, got int.
+Type mismatch: map value expects int, got string.
+Key 'nobody' not found in map.
+1
+true
+2
+Type mismatch: field 'value' of Node expects int, got string.
+Class 'Node' has no field 'missing'.
+Type mismatch: field 'next' of Node expects Node, got int.
+Type mismatch: argument 1 ('v') of 'init' expects int, got string.
+true
+rex barks
+Type mismatch: variable 'd' expects Dog, got Animal.
+42|2.5|3.0|true
+43
+-7
+3
+-3
+5.000000
+3.000000
+int(): 'abc' is not a valid integer.
+int(): '12abc' is not a valid integer.
+float(): '' is not a valid number.
+str() cannot convert list.

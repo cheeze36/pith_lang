@@ -1,0 +1,35 @@
+9223372036854775807
+-9223372036854775808
+2147483648
+9000000000
+4611686018427387904
+4052555153018976267
+1000000000000000000
+-9223372036854775808
+Integer overflow in '+' (result does not fit in a 64-bit int).
+Integer overflow in '-' (result does not fit in a 64-bit int).
+Integer overflow in '*' (result does not fit in a 64-bit int).
+Integer overflow in '^' (result does not fit in a 64-bit int).
+Integer overflow in '-' (result does not fit in a 64-bit int).
+Integer overflow in '/' (result does not fit in a 64-bit int).
+Negative exponent with an int base; use a float base (e.g. 2.0 ^ -1).
+0.500000
+int(): '9223372036854775808' is not a valid integer.
+0.1
+0.30000000000000004
+0.3333333333333333
+1e+301
+123456789.12345679
+9.223372036854776e+18
+16777217.0
+1000000000000000000
+int(): 1e+19 is out of range for an int.
+3
+9223372036854775806
+3
+4000000000
+true
+[9007199254740993,0.1,1e+21]
+true
+9.223372036854776e+18
+0.30000000000000004

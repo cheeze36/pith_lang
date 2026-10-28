@@ -4,7 +4,7 @@
 # compile C with /usr/bin/cc
 C_DEFINES = -DGRAPHICS_API_OPENGL_33 -DPITH_ENABLE_GUI -DPITH_STDLIB_DIR=\"/home/celdridge/projects/pith/pith_lang/stdlib\" -DPLATFORM_DESKTOP
 
-C_INCLUDES = -I/home/celdridge/projects/pith/pith_lang -I/home/celdridge/projects/pith/pith_lang/lib -I/home/celdridge/projects/pith/pith_lang/third_party -I/home/celdridge/projects/pith/pith_lang/build/_deps/raylib-src/src -I/home/celdridge/projects/pith/pith_lang/build/_deps/raylib-src/src/external/glfw/include
+C_INCLUDES = -I/home/celdridge/projects/pith/pith_lang -I/home/celdridge/projects/pith/pith_lang/lib -I/home/celdridge/projects/pith/pith_lang/third_party -I/home/celdridge/projects/pith/pith_lang/third_party/sqlite -I/home/celdridge/projects/pith/pith_lang/build/_deps/raylib-src/src -I/home/celdridge/projects/pith/pith_lang/build/_deps/raylib-src/src/external/glfw/include
 
 C_FLAGS = -O2 -DNDEBUG -std=gnu99 -Werror=implicit-function-declaration
 

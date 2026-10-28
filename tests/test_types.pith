@@ -1,0 +1,253 @@
+###
+# Tests for type enforcement: declarations, assignments, operators, conditions,
+# functions, class fields, lists and maps, void, and the conversion functions.
+# Every error case is rescued so its message can be checked.
+###
+
+# --- zero values for declarations without an initializer ---
+int zi
+float zf
+string zs
+bool zb
+list<int> zl
+map<string, int> zm
+print(zi)
+print(zf)
+print(zs.len())
+print(zb)
+print(zl.len())
+zm["a"] = 1
+print(zm["a"])
+
+# --- declarations and assignments are checked ---
+try:
+    int bad = "oops"
+rescue e:
+    print(e)
+int n = 5
+try:
+    n = "five"
+rescue e:
+    print(e)
+try:
+    int k = 2.5
+rescue e:
+    print(e)
+
+# --- int widens to float (the only implicit conversion) ---
+float f = 5
+print(f)
+f = 7
+print(f)
+print(1 + 2.5)
+print(10 / 4)
+print(10.0 / 4)
+
+# --- operators never mix other types ---
+try:
+    print("n=" + 5)
+rescue e:
+    print(e)
+try:
+    print(true + 1)
+rescue e:
+    print(e)
+try:
+    print(1 == "1")
+rescue e:
+    print(e)
+print("n=" + str(5))
+print("abc" < "abd")
+print("b" > "abc")
+print(true == true)
+print(true != false)
+print(7.5 % 2)
+
+# --- conditions must be bool ---
+try:
+    if (1):
+        print("not reached")
+rescue e:
+    print(e)
+try:
+    while ("yes"):
+        print("not reached")
+rescue e:
+    print(e)
+
+# --- and/or short-circuit and require bools ---
+define boom():
+    raise "right side should not run"
+    return true
+print(false and boom())
+print(true or boom())
+try:
+    print(0 or true)
+rescue e:
+    print(e)
+
+# --- function parameters, arity and return types ---
+define int add(int a, int b):
+    return a + b
+print(add(2, 3))
+try:
+    add(2, "3")
+rescue e:
+    print(e)
+try:
+    add(1)
+rescue e:
+    print(e)
+
+define float half(float x):
+    return x / 2
+print(half(5))
+
+define int broken():
+    return "not an int"
+try:
+    broken()
+rescue e:
+    print(e)
+
+define int forgets():
+    int unused = 1
+try:
+    forgets()
+rescue e:
+    print(e)
+
+define void quiet():
+    print("quiet ran")
+quiet()
+
+define list<int> evens(int count):
+    list<int> out = []
+    for (int i = 0; i < count; i = i + 1):
+        out.append(i * 2)
+    return out
+print(evens(4))
+
+define string greet(string name):
+    return "hi " + name
+print(greet("pith"))
+
+# --- local variables inside functions are checked too ---
+define void local_check():
+    int x = 1
+    try:
+        x = "no"
+    rescue e:
+        print("local: " + e)
+local_check()
+
+# --- lists: element types are enforced and adopted ---
+list<int> nums = [1, 2, 3]
+nums.append(4)
+try:
+    nums.append("five")
+rescue e:
+    print(e)
+try:
+    nums[0] = "zero"
+rescue e:
+    print(e)
+try:
+    list<int> mixed = [1, "two"]
+rescue e:
+    print(e)
+list<float> floats = [1, 2.5]
+print(floats)
+try:
+    list<string> wrong = nums
+rescue e:
+    print(e)
+try:
+    foreach (string s in nums):
+        print(s)
+rescue e:
+    print(e)
+
+# --- maps: value types and missing keys ---
+map<string, int> ages = {"ann": 30}
+try:
+    ages["bob"] = "old"
+rescue e:
+    print(e)
+try:
+    print(ages["nobody"])
+rescue e:
+    print(e)
+
+# --- classes: typed fields, zero values, void for class types ---
+class Node:
+    int value
+    Node next
+
+    define init(int v):
+        this.value = v
+
+Node a = Node(1)
+print(a.value)
+print(a.next == void)
+a.next = Node(2)
+print(a.next.value)
+try:
+    a.value = "one"
+rescue e:
+    print(e)
+try:
+    a.missing = 1
+rescue e:
+    print(e)
+try:
+    a.next = 5
+rescue e:
+    print(e)
+try:
+    Node bad_node = Node("x")
+rescue e:
+    print(e)
+Node empty
+print(empty == void)
+
+class Animal:
+    string name
+    define init(string n):
+        this.name = n
+
+class Dog extends Animal:
+    define string speak():
+        return this.name + " barks"
+
+Animal pet = Dog("rex")
+print(pet.speak())
+try:
+    Dog d = Animal("generic")
+rescue e:
+    print(e)
+
+# --- conversion functions ---
+print(str(42) + "|" + str(2.5) + "|" + str(3.0) + "|" + str(true))
+print(int("42") + 1)
+print(int("-7"))
+print(int(3.9))
+print(int(-3.9))
+print(float("2.5") * 2)
+print(float(3))
+try:
+    int("abc")
+rescue e:
+    print(e)
+try:
+    int("12abc")
+rescue e:
+    print(e)
+try:
+    float("")
+rescue e:
+    print(e)
+try:
+    str([1, 2])
+rescue e:
+    print(e)

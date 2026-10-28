@@ -1,0 +1,81 @@
+###
+# Tests for the json module: encoding every kind of value, decoding into typed
+# variables, escapes and Unicode, round trips, and malformed input.
+###
+
+import "json"
+
+# --- encoding ---
+print(json.encode(42))
+print(json.encode(-2.5))
+print(json.encode(3.0))
+print(json.encode(true))
+print(json.encode(void))
+print(json.encode("quote \" backslash \\ newline \n tab \t nul \0 é"))
+print(json.encode([1, 2, 3]))
+map<string, int> scores = {"ann": 3, "bob": 5}
+print(json.encode(scores))
+print(json.encode({"nested": [1, [2, [3]]], "empty": [], "obj": {}}))
+
+class User:
+    string name
+    int age
+    list<string> tags
+    User friend
+
+    define init(string n, int a):
+        this.name = n
+        this.age = a
+
+User u = User("ann", 30)
+u.tags.append("admin")
+print(json.encode(u))
+
+try:
+    json.encode(User)
+rescue e:
+    print(e)
+
+# --- decoding ---
+map data = json.decode("{\"name\": \"Pith\", \"tags\": [\"a\", \"b\"], \"age\": 2, \"ratio\": 0.5, \"ok\": true, \"none\": null}")
+string name = data["name"]
+list tags = data["tags"]
+int age = data["age"]
+float ratio = data["ratio"]
+bool ok = data["ok"]
+print(name + " " + str(tags.len()) + " " + str(age) + " " + str(ratio) + " " + str(ok))
+print(data["none"] == void)
+print(data.keys())
+
+# Typed targets adopt the decoded containers' element types.
+map<string, int> counts = json.decode("{\"x\": 1, \"y\": 2}")
+print(counts["x"] + counts["y"])
+list<float> values = json.decode("[1, 2.5, -3e2]")
+print(values)
+try:
+    list<int> wrong = json.decode("[1, \"two\"]")
+rescue e:
+    print(e)
+
+# Numbers: integers stay int, fractions/exponents/huge values become float.
+print(json.decode("7") + 1)
+print(json.decode("7.0") + 1)
+print(json.decode("10000000000") > 1.0)
+
+# Escapes and Unicode (including a surrogate pair -> 4-byte UTF-8).
+string text = json.decode("\"tab\\tquote\\\"slash\\/ \\u00e9 \\ud83d\\ude00\"")
+print(text)
+print(text.count())
+
+# Round trip
+string encoded = json.encode(data)
+print(json.encode(json.decode(encoded)) == encoded)
+
+# --- malformed input ---
+list<string> bad = ["{", "[1, 2", "{\"a\" 1}", "tru", "\"unterminated", "[1,]", "01", "1 2", "\"\\ud800\"", ""]
+foreach (string doc in bad):
+    try:
+        json.decode(doc)
+        print("accepted: " + doc)
+    rescue e:
+        print(e)

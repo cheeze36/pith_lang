@@ -313,6 +313,7 @@ static void trace_references(ObjHeader *obj)
         }
         case OBJ_STRUCT_DEF:
         case OBJ_STRING:
+        case OBJ_BUFFER:
             // No child objects to mark
             break;
         case OBJ_NATIVE:
@@ -496,6 +497,14 @@ void sweep()
                     StructInstance *inst = (StructInstance *) unreached;
                     free(inst->field_values);
                     bytes_allocated -= sizeof(StructInstance);
+                    break;
+                }
+                case OBJ_BUFFER:
+                {
+                    // free() may already have released the bytes (data is then NULL).
+                    Buffer *buffer = (Buffer *) unreached;
+                    free(buffer->data);
+                    bytes_allocated -= sizeof(Buffer);
                     break;
                 }
                 case OBJ_NATIVE:

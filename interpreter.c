@@ -16,6 +16,7 @@
 #include "pith_string.h" // Immutable GC-managed strings
 #include "types.h" // Declared-type enforcement
 #include "native_object.h" // C-backed objects (Regex, ...)
+#include "pith_buffer.h" // The built-in mutable `buffer` type
 #include "resolver.h" // Static variable-resolution pass
 #include "time_module.h" // Native `time` module (sleep, timers, formatting)
 #include "http_module.h" // Native `http` module (basic web server)
@@ -25,6 +26,8 @@
 #include "regex_module.h" // Native `regex` module (linear-time regular expressions)
 #include "encoding_module.h" // Native `encoding` module (base64, hex)
 #include "crypto_module.h" // Native `crypto` module (secure random, SHA-256, HMAC, passwords)
+#include "sqlite_module.h" // Native `sqlite` module (embedded SQL database)
+#include "template_module.h" // Native `template` module (HTML templates)
 #ifdef PITH_ENABLE_GUI
 #include "gui.h" // Optional raylib/raygui-backed `gui` module
 #endif
@@ -553,6 +556,8 @@ const char *get_value_type_name(ValueType type)
             return "hashmap";
         case VAL_NATIVE_OBJECT:
             return "native object";
+        case VAL_BUFFER:
+            return "buffer";
         default:
             return "unknown";
     }
@@ -614,6 +619,13 @@ void print_value(Value v)
         printf("<bound method>");
     else if (v.type == VAL_NATIVE_OBJECT)
         printf("<%s>", v.native->cls->name);
+    else if (v.type == VAL_BUFFER)
+    {
+        // A buffer prints its contents, like a string.
+        buffer_require_live(v.buffer, 0);
+        if (v.buffer->length > 0)
+            fwrite(v.buffer->data, 1, (size_t) v.buffer->length, stdout);
+    }
     else if (v.type == VAL_LIST)
     {
         if (is_being_printed((ObjHeader *) v.list))
@@ -1132,7 +1144,7 @@ static void format_float(double f, char *buffer, size_t size)
     if (strpbrk(buffer, ".eEn") == NULL) // "n" covers nan/inf
         strncat(buffer, ".0", size - strlen(buffer) - 1);
 }
-// str(x) -> string. Converts an int, float, bool or string to its text form.
+// str(x) -> string. Converts an int, float, bool, string or buffer to its text form.
 Value native_str(int arg_count, Value *args)
 {
     if (arg_count != 1)
@@ -1142,6 +1154,9 @@ Value native_str(int arg_count, Value *args)
     {
         case VAL_STRING:
             return args[0];
+        case VAL_BUFFER:
+            buffer_require_live(args[0].buffer, 0);
+            return string_value(args[0].buffer->data, args[0].buffer->length); // Same as b.to_string()
         case VAL_INT:
             snprintf(buffer, sizeof(buffer), "%" PITH_INT_FMT, args[0].int_val);
             break;
@@ -1654,6 +1669,7 @@ void define_all_natives_in_env(Env **env_ptr)
     define_native_in_env(env_ptr, "str", native_str);
     define_native_in_env(env_ptr, "int", native_int);
     define_native_in_env(env_ptr, "float", native_float);
+    define_native_in_env(env_ptr, "buffer", native_buffer_constructor);
 }
 
 // string.repeat(count) -> string. The string repeated count times ("ab".repeat(3) == "ababab").
@@ -1929,6 +1945,12 @@ void register_all_native_modules()
     encoding_register_module(native_module_funcs);
     crypto_register_module(native_module_funcs);
 
+    // SQLite database module (Database native type).
+    sqlite_register_module(native_module_funcs);
+
+    // HTML templates (Template native type).
+    template_register_module(native_module_funcs);
+
     // Integer module
     HashMap *integer_funcs = hashmap_create(VAL_STRING, VAL_NATIVE_FN);
     register_native_method(integer_funcs, "fromString", native_integer_fromString);
@@ -1979,6 +2001,25 @@ Value interpreter_call(Value callee, Value *args, int arg_count, int line)
     }
     report_error(line, "Value of type %s is not callable.", type_describe_value(callee));
     return (Value){VAL_VOID};
+}
+
+int interpreter_run_protected(void (*body)(void *context), void *context, char *error, size_t error_size)
+{
+    // Same mechanism as a Pith `try` (see exec_protected).
+    TryFrame frame;
+    GcRootSnapshot roots = gc_root_snapshot();
+    frame.prev = current_try;
+    current_try = &frame;
+    if (setjmp(frame.jump) != 0)
+    {
+        gc_restore_root_snapshot(roots); // report_error() already popped the frame.
+        printing_count = 0;
+        snprintf(error, error_size, "%s", frame.message);
+        return 1;
+    }
+    body(context);
+    current_try = frame.prev;
+    return 0;
 }
 
 int interpreter_call_protected(Value callee, Value *args, int arg_count, Value *result, char *error,
@@ -2277,13 +2318,13 @@ static int64_t checked_pow(int64_t base, int64_t exponent, int line)
  *    equal only to void. Other mixed types are an error, never silently false.
  *  - Everything else is a type error: there are no implicit conversions.
  */
-static Value eval_binary(ASTNode *node, Value left, Value right)
+Value apply_binary_operator(OpCode op, const char *operator_text, int line, Value left, Value right)
 {
     Value res = {VAL_VOID};
     int left_num = left.type == VAL_INT || left.type == VAL_FLOAT;
     int right_num = right.type == VAL_INT || right.type == VAL_FLOAT;
 
-    if (node->op == OP_EQ || node->op == OP_NE)
+    if (op == OP_EQ || op == OP_NE)
     {
         int equal;
         if (left_num && right_num)
@@ -2298,8 +2339,8 @@ static Value eval_binary(ASTNode *node, Value left, Value right)
             equal = left.type == right.type;
         else if (left.type != right.type)
         {
-            report_error(node->line_num, "Cannot compare %s with %s using '%s'.", type_describe_value(left),
-                         type_describe_value(right), node->value);
+            report_error(line, "Cannot compare %s with %s using '%s'.", type_describe_value(left),
+                         type_describe_value(right), operator_text);
             equal = 0;
         }
         else if (left.type == VAL_STRING)
@@ -2311,45 +2352,45 @@ static Value eval_binary(ASTNode *node, Value left, Value right)
         else
             equal = value_object(left) == value_object(right); // Identity for heap values.
         res.type = VAL_BOOL;
-        res.int_val = node->op == OP_EQ ? equal : !equal;
+        res.int_val = op == OP_EQ ? equal : !equal;
         return res;
     }
 
     if (left.type == VAL_INT && right.type == VAL_INT)
     {
-        switch (node->op)
+        switch (op)
         {
             case OP_ADD:
                 res.type = VAL_INT;
-                res.int_val = checked_add(left.int_val, right.int_val, node->line_num);
+                res.int_val = checked_add(left.int_val, right.int_val, line);
                 return res;
             case OP_SUB:
                 res.type = VAL_INT;
-                res.int_val = checked_sub(left.int_val, right.int_val, node->line_num);
+                res.int_val = checked_sub(left.int_val, right.int_val, line);
                 return res;
             case OP_MUL:
                 res.type = VAL_INT;
-                res.int_val = checked_mul(left.int_val, right.int_val, node->line_num, "*");
+                res.int_val = checked_mul(left.int_val, right.int_val, line, "*");
                 return res;
             case OP_DIV:
             case OP_MOD:
                 // In C both of these trap (SIGFPE) and kill the interpreter.
                 if (right.int_val == 0)
-                    report_error(node->line_num, node->op == OP_DIV ? "Division by zero." : "Modulo by zero.");
+                    report_error(line, op == OP_DIV ? "Division by zero." : "Modulo by zero.");
                 res.type = VAL_INT;
                 if (left.int_val == INT64_MIN && right.int_val == -1)
                 {
                     // The one int division whose result does not fit (C traps on it).
-                    if (node->op == OP_DIV)
-                        integer_overflow(node->line_num, "/");
+                    if (op == OP_DIV)
+                        integer_overflow(line, "/");
                     res.int_val = 0;
                 }
                 else
-                    res.int_val = node->op == OP_DIV ? left.int_val / right.int_val : left.int_val % right.int_val;
+                    res.int_val = op == OP_DIV ? left.int_val / right.int_val : left.int_val % right.int_val;
                 return res;
             case OP_POW:
                 res.type = VAL_INT;
-                res.int_val = checked_pow(left.int_val, right.int_val, node->line_num);
+                res.int_val = checked_pow(left.int_val, right.int_val, line);
                 return res;
             case OP_LT: res.type = VAL_BOOL; res.int_val = left.int_val < right.int_val; return res;
             case OP_GT: res.type = VAL_BOOL; res.int_val = left.int_val > right.int_val; return res;
@@ -2363,7 +2404,7 @@ static Value eval_binary(ASTNode *node, Value left, Value right)
         // int operands widen to float.
         double left_d = (left.type == VAL_INT) ? left.int_val : left.float_val;
         double right_d = (right.type == VAL_INT) ? right.int_val : right.float_val;
-        switch (node->op)
+        switch (op)
         {
             case OP_ADD: res.type = VAL_FLOAT; res.float_val = left_d + right_d; return res;
             case OP_SUB: res.type = VAL_FLOAT; res.float_val = left_d - right_d; return res;
@@ -2380,13 +2421,13 @@ static Value eval_binary(ASTNode *node, Value left, Value right)
     }
     else if (left.type == VAL_STRING && right.type == VAL_STRING)
     {
-        if (node->op == OP_ADD)
+        if (op == OP_ADD)
         {
             res.type = VAL_STRING;
             res.string = string_concat(left.string, right.string);
             return res;
         }
-        if (node->op == OP_LT || node->op == OP_GT || node->op == OP_LE || node->op == OP_GE)
+        if (op == OP_LT || op == OP_GT || op == OP_LE || op == OP_GE)
         {
             ObjString *a = left.string;
             ObjString *b = right.string;
@@ -2395,13 +2436,13 @@ static Value eval_binary(ASTNode *node, Value left, Value right)
             if (cmp == 0)
                 cmp = (a->length > b->length) - (a->length < b->length);
             res.type = VAL_BOOL;
-            res.int_val = node->op == OP_LT ? cmp < 0 : node->op == OP_GT ? cmp > 0 : node->op == OP_LE ? cmp <= 0
+            res.int_val = op == OP_LT ? cmp < 0 : op == OP_GT ? cmp > 0 : op == OP_LE ? cmp <= 0
                                                                                                          : cmp >= 0;
             return res;
         }
     }
 
-    report_error(node->line_num, "Operator '%s' cannot be applied to %s and %s.", node->value,
+    report_error(line, "Operator '%s' cannot be applied to %s and %s.", operator_text,
                  type_describe_value(left), type_describe_value(right));
     return res;
 }
@@ -2444,8 +2485,8 @@ static void bind_call_args(Func *func, Env *frame, int first_slot, Value *args, 
  */
 static Value check_return(Func *func, Value result, int line)
 {
-    if (result.type == VAL_BREAK || result.type == VAL_CONTINUE)
-        result = (Value){VAL_VOID}; // A stray loop signal does not leave the function as a value.
+    if (result.type == VAL_BREAK || result.type == VAL_CONTINUE || result.type == VAL_RETURN_VOID)
+        result = (Value){VAL_VOID}; // Signals end here; the caller sees void.
     TypeSpec *declared = func->body->type_spec;
     if (declared == NULL)
         return result;
@@ -2783,6 +2824,21 @@ Value eval(ASTNode *node, Env *env)
                     return result;
                 }
             }
+            else if (object.type == VAL_BUFFER)
+            {
+                Value method_val = hashmap_get(buffer_methods(), node->value);
+                if (method_val.type != VAL_VOID)
+                {
+                    gc_push_value(object); // The receiver may be a temporary.
+                    BoundMethod *bound = (BoundMethod *) allocate_obj(sizeof(BoundMethod), OBJ_BOUND_METHOD);
+                    gc_pop_root();
+                    bound->receiver = object;
+                    bound->method = method_val;
+                    result.type = VAL_BOUND_METHOD;
+                    result.bound_method = bound;
+                    return result;
+                }
+            }
             else if (object.type == VAL_NATIVE_OBJECT)
             {
                 Value method_val = hashmap_get(object.native->cls->methods.hashmap, node->value);
@@ -2840,6 +2896,22 @@ Value eval(ASTNode *node, Env *env)
                 gc_pop_root();
                 break;
             }
+            if (collection.type == VAL_BUFFER)
+            {
+                // b[i] -> one-byte string, like string indexing.
+                Buffer *buffer = collection.buffer;
+                buffer_require_live(buffer, node->line_num);
+                if (index_val.type != VAL_INT)
+                    report_error(node->line_num, "Buffer index must be an integer.");
+                int64_t index = index_val.int_val < 0 ? index_val.int_val + buffer->length : index_val.int_val;
+                if (index < 0 || index >= buffer->length)
+                    report_error(node->line_num, "Buffer index %" PITH_INT_FMT " out of range (length %d).",
+                                 index_val.int_val, buffer->length);
+                gc_push_value(collection);
+                result = string_value(buffer->data + index, 1);
+                gc_pop_root();
+                break;
+            }
             if (collection.type == VAL_LIST)
             {
                 if (index_val.type != VAL_INT)
@@ -2869,13 +2941,12 @@ Value eval(ASTNode *node, Env *env)
             int root_depth = gc_temp_root_depth();
             Value collection = eval(node->children[0], env);
             gc_push_value(collection); // Rooted while the bounds evaluate and the slice is built.
-            if (collection.type != VAL_STRING)
-                report_error(node->line_num, "Only strings can be sliced (got '%s').",
-                             get_value_type_name(collection.type));
+            if (collection.type != VAL_STRING && collection.type != VAL_BUFFER)
+                report_error(node->line_num, "Only strings and buffers can be sliced (got %s).",
+                             type_describe_value(collection));
 
-            int64_t length = STRING_LENGTH(collection);
             int64_t start = 0;
-            int64_t end = length;
+            int64_t end = INT64_MAX; // An omitted end means "to the end".
             int child = 1;
             if (node->int_value & SLICE_HAS_START)
             {
@@ -2891,6 +2962,21 @@ Value eval(ASTNode *node, Env *env)
                     report_error(node->line_num, "Slice bounds must be integers.");
                 end = v.int_val;
             }
+            // Read the contents only after the bounds are evaluated: an expression
+            // in a bound could have changed (or freed) a buffer.
+            const char *bytes;
+            int64_t length;
+            if (collection.type == VAL_BUFFER)
+            {
+                buffer_require_live(collection.buffer, node->line_num);
+                bytes = collection.buffer->data;
+                length = collection.buffer->length;
+            }
+            else
+            {
+                bytes = AS_CSTRING(collection);
+                length = STRING_LENGTH(collection);
+            }
             if (start < 0)
                 start += length;
             if (end < 0)
@@ -2898,7 +2984,7 @@ Value eval(ASTNode *node, Env *env)
             start = start < 0 ? 0 : (start > length ? length : start);
             end = end < start ? start : (end > length ? length : end);
 
-            result = string_value(AS_CSTRING(collection) + start, (int) (end - start));
+            result = string_value(bytes + start, (int) (end - start));
             gc_pop_roots_to(root_depth);
             break;
         }
@@ -2938,7 +3024,7 @@ Value eval(ASTNode *node, Env *env)
             printf("[DDI_BINOP] %s %s %s\n", get_value_type_name(left.type), node->value,
                    get_value_type_name(right.type));
 #endif
-            result = eval_binary(node, left, right);
+            result = apply_binary_operator(node->op, node->value, node->line_num, left, right);
             gc_pop_roots_to(root_depth);
             break;
         }
@@ -3500,7 +3586,24 @@ Value exec(ASTNode *node, Env **env_ptr)
                 else if (collection.type == VAL_STRING)
                 {
                     report_error(target->line_num, "Strings are immutable; build a new string instead "
-                                 "(e.g. with slicing and +).");
+                                 "(e.g. with slicing and +), or use a buffer.");
+                }
+                else if (collection.type == VAL_BUFFER)
+                {
+                    // b[i] = "x": replace exactly one byte.
+                    Buffer *buffer = collection.buffer;
+                    buffer_require_live(buffer, target->line_num);
+                    if (index_val.type != VAL_INT)
+                        report_error(target->line_num, "Buffer index must be an integer.");
+                    if (val_to_assign.type != VAL_STRING || STRING_LENGTH(val_to_assign) != 1)
+                        report_error(target->line_num, "A buffer element must be assigned a one-byte string, got %s.",
+                                     val_to_assign.type == VAL_STRING ? "a string of another length"
+                                                                      : type_describe_value(val_to_assign));
+                    int64_t index = index_val.int_val < 0 ? index_val.int_val + buffer->length : index_val.int_val;
+                    if (index < 0 || index >= buffer->length)
+                        report_error(target->line_num, "Buffer index %" PITH_INT_FMT " out of range (length %d).",
+                                     index_val.int_val, buffer->length);
+                    buffer->data[index] = AS_CSTRING(val_to_assign)[0];
                 }
                 else if (collection.type == VAL_LIST)
                 {
@@ -3745,7 +3848,16 @@ Value exec(ASTNode *node, Env **env_ptr)
             break;
         }
         case AST_RETURN:
-            return eval(node->children[0], *env_ptr);
+        {
+            // Statements signal "return" by producing a non-void value, so a
+            // return without a value (or of a void value, like `return f()` for a
+            // void f) uses the VAL_RETURN_VOID marker instead of plain void,
+            // which would mean "carry on". check_return() turns it back into void.
+            Value returned = node->children_count > 0 ? eval(node->children[0], *env_ptr) : (Value){VAL_VOID};
+            if (returned.type == VAL_VOID)
+                returned.type = VAL_RETURN_VOID;
+            return returned;
+        }
         case AST_TRY:
             return exec_try(node, env_ptr);
         case AST_RAISE:

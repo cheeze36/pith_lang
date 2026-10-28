@@ -195,6 +195,19 @@ pith_lang/fast:
 .PHONY : pith_lang/fast
 
 #=============================================================================
+# Target rules for targets named pith_sqlite
+
+# Build rule for target.
+pith_sqlite: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 pith_sqlite
+.PHONY : pith_sqlite
+
+# fast build rule for target.
+pith_sqlite/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_sqlite.dir/build.make CMakeFiles/pith_sqlite.dir/build
+.PHONY : pith_sqlite/fast
+
+#=============================================================================
 # Target rules for targets named uninstall
 
 # Build rule for target.
@@ -486,6 +499,30 @@ lib/sha256.c.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/lib/sha256.c.s
 .PHONY : lib/sha256.c.s
 
+lib/sqlite_module.o: lib/sqlite_module.c.o
+.PHONY : lib/sqlite_module.o
+
+# target to build an object file
+lib/sqlite_module.c.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/lib/sqlite_module.c.o
+.PHONY : lib/sqlite_module.c.o
+
+lib/sqlite_module.i: lib/sqlite_module.c.i
+.PHONY : lib/sqlite_module.i
+
+# target to preprocess a source file
+lib/sqlite_module.c.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/lib/sqlite_module.c.i
+.PHONY : lib/sqlite_module.c.i
+
+lib/sqlite_module.s: lib/sqlite_module.c.s
+.PHONY : lib/sqlite_module.s
+
+# target to generate assembly for a file
+lib/sqlite_module.c.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/lib/sqlite_module.c.s
+.PHONY : lib/sqlite_module.c.s
+
 lib/sys_module.o: lib/sys_module.c.o
 .PHONY : lib/sys_module.o
 
@@ -509,6 +546,30 @@ lib/sys_module.s: lib/sys_module.c.s
 lib/sys_module.c.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/lib/sys_module.c.s
 .PHONY : lib/sys_module.c.s
+
+lib/template_module.o: lib/template_module.c.o
+.PHONY : lib/template_module.o
+
+# target to build an object file
+lib/template_module.c.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/lib/template_module.c.o
+.PHONY : lib/template_module.c.o
+
+lib/template_module.i: lib/template_module.c.i
+.PHONY : lib/template_module.i
+
+# target to preprocess a source file
+lib/template_module.c.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/lib/template_module.c.i
+.PHONY : lib/template_module.c.i
+
+lib/template_module.s: lib/template_module.c.s
+.PHONY : lib/template_module.s
+
+# target to generate assembly for a file
+lib/template_module.c.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/lib/template_module.c.s
+.PHONY : lib/template_module.c.s
 
 lib/time_module.o: lib/time_module.c.o
 .PHONY : lib/time_module.o
@@ -606,6 +667,30 @@ parser.c.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/parser.c.s
 .PHONY : parser.c.s
 
+pith_buffer.o: pith_buffer.c.o
+.PHONY : pith_buffer.o
+
+# target to build an object file
+pith_buffer.c.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/pith_buffer.c.o
+.PHONY : pith_buffer.c.o
+
+pith_buffer.i: pith_buffer.c.i
+.PHONY : pith_buffer.i
+
+# target to preprocess a source file
+pith_buffer.c.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/pith_buffer.c.i
+.PHONY : pith_buffer.c.i
+
+pith_buffer.s: pith_buffer.c.s
+.PHONY : pith_buffer.s
+
+# target to generate assembly for a file
+pith_buffer.c.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/pith_buffer.c.s
+.PHONY : pith_buffer.c.s
+
 pith_string.o: pith_string.c.o
 .PHONY : pith_string.o
 
@@ -678,6 +763,30 @@ resolver.c.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_lang.dir/build.make CMakeFiles/pith_lang.dir/resolver.c.s
 .PHONY : resolver.c.s
 
+third_party/sqlite/sqlite3.o: third_party/sqlite/sqlite3.c.o
+.PHONY : third_party/sqlite/sqlite3.o
+
+# target to build an object file
+third_party/sqlite/sqlite3.c.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_sqlite.dir/build.make CMakeFiles/pith_sqlite.dir/third_party/sqlite/sqlite3.c.o
+.PHONY : third_party/sqlite/sqlite3.c.o
+
+third_party/sqlite/sqlite3.i: third_party/sqlite/sqlite3.c.i
+.PHONY : third_party/sqlite/sqlite3.i
+
+# target to preprocess a source file
+third_party/sqlite/sqlite3.c.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_sqlite.dir/build.make CMakeFiles/pith_sqlite.dir/third_party/sqlite/sqlite3.c.i
+.PHONY : third_party/sqlite/sqlite3.c.i
+
+third_party/sqlite/sqlite3.s: third_party/sqlite/sqlite3.c.s
+.PHONY : third_party/sqlite/sqlite3.s
+
+# target to generate assembly for a file
+third_party/sqlite/sqlite3.c.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/pith_sqlite.dir/build.make CMakeFiles/pith_sqlite.dir/third_party/sqlite/sqlite3.c.s
+.PHONY : third_party/sqlite/sqlite3.c.s
+
 tokenizer.o: tokenizer.c.o
 .PHONY : tokenizer.o
 
@@ -744,6 +853,7 @@ help:
 	@echo "... update_mappings"
 	@echo "... glfw"
 	@echo "... pith_lang"
+	@echo "... pith_sqlite"
 	@echo "... raylib"
 	@echo "... gc.o"
 	@echo "... gc.i"
@@ -775,9 +885,15 @@ help:
 	@echo "... lib/sha256.o"
 	@echo "... lib/sha256.i"
 	@echo "... lib/sha256.s"
+	@echo "... lib/sqlite_module.o"
+	@echo "... lib/sqlite_module.i"
+	@echo "... lib/sqlite_module.s"
 	@echo "... lib/sys_module.o"
 	@echo "... lib/sys_module.i"
 	@echo "... lib/sys_module.s"
+	@echo "... lib/template_module.o"
+	@echo "... lib/template_module.i"
+	@echo "... lib/template_module.s"
 	@echo "... lib/time_module.o"
 	@echo "... lib/time_module.i"
 	@echo "... lib/time_module.s"
@@ -790,6 +906,9 @@ help:
 	@echo "... parser.o"
 	@echo "... parser.i"
 	@echo "... parser.s"
+	@echo "... pith_buffer.o"
+	@echo "... pith_buffer.i"
+	@echo "... pith_buffer.s"
 	@echo "... pith_string.o"
 	@echo "... pith_string.i"
 	@echo "... pith_string.s"
@@ -799,6 +918,9 @@ help:
 	@echo "... resolver.o"
 	@echo "... resolver.i"
 	@echo "... resolver.s"
+	@echo "... third_party/sqlite/sqlite3.o"
+	@echo "... third_party/sqlite/sqlite3.i"
+	@echo "... third_party/sqlite/sqlite3.s"
 	@echo "... tokenizer.o"
 	@echo "... tokenizer.i"
 	@echo "... tokenizer.s"

@@ -60,7 +60,7 @@ s[-3:]        # "llo" - negative bounds count from the end; out-of-range bounds 
 - Strings cannot be modified (`s[0] = "x"` is an error); build a new string with slicing and `+`.
 - `split("")` splits into characters (UTF-8 code points), matching `count()`.
 - `s.repeat(n)` repeats a string (`"-".repeat(40)`).
-- **Building long strings:** because strings are immutable, `result = result + piece` in a loop copies the whole string every time (quadratic time for long results). Collect the pieces in a `list<string>` and call `pieces.join("")` once, or use `repeat()`.
+- **Building long strings:** because strings are immutable, `result = result + piece` in a loop copies the whole string every time (quadratic time for long results). Use a `buffer` (section 2.2) and call `to_string()` once at the end, or collect pieces in a `list<string>` and `join` them.
 - Map keys are text: a key containing a NUL byte is truncated at the NUL.
 
 ### 1.3. Blocks and Indentation
@@ -99,6 +99,7 @@ Pith currently exposes the following primitive types (value semantics):
 ### 2.2. Reference / Heap Types
 Reference (heap-allocated) types are managed by the runtime and passed by reference (assigning or passing copies the reference):
 
+- `buffer`: a mutable, growable sequence of bytes, the mutable counterpart of `string`. Create with `buffer()`, `buffer(capacity)` or `buffer("text")`; methods `append`, `insert`, `remove(start, end)`, `clear`, `find`, `len`, `capacity`, `to_string`, `free`, `is_freed`. `b[i]` is a one-byte string, `b[i] = "x"` replaces a byte, `b[a:c]` is a string copy. `free()` releases the memory immediately; afterwards every use of that buffer, through any variable, raises an error, and no stale reference can ever read reused memory. There is no implicit conversion to `string`: use `b.to_string()` or `str(b)`. See `pith_buffer.h`.
 - `list<T>`: dynamic, ordered collection, e.g. `list<int> nums = [1, 2]`. Bare `list` accepts any elements.
 - `T[size]` / `T[]`: a fixed-size list of `size` zero values (e.g. `int[3] arr`), or an empty growable one.
 - `map<string, V>`: hashmap keyed by strings with values of type `V`. Bare `map` accepts any values. Maps remember insertion order.
@@ -112,9 +113,9 @@ Types are checked at runtime wherever a value is stored under a declared type: v
 - **No implicit conversions**, with one exception: an `int` is accepted where a `float` is expected and widens to a float (`float f = 5`, `2.5 * n`). A `float` never silently becomes an `int`, and nothing ever becomes a string.
 - **Explicit conversions:** `str(x)` (int, float, bool, string -> text), `int(x)` (float truncates toward zero; strings must be a whole integer like `"-42"`), `float(x)` (int or numeric string). Invalid input such as `int("abc")` raises an error. (`integer.toString` / `integer.fromString` remain for compatibility.)
 - **`void` ("no object") is allowed only in class-typed variables and fields**, e.g. `Node next` starts as `void`; test with `next == void`. All other types can never hold void.
-- **Zero values:** a declaration without `=` gets `0`, `0.0`, `""`, `false`, an empty list/map, or `void` for class types. Class fields start at the zero value of their declared type.
+- **Zero values:** a declaration without `=` gets `0`, `0.0`, `""`, `false`, an empty buffer, an empty list/map, or `void` for class types. Class fields start at the zero value of their declared type.
 - **Containers:** an untyped list/map (a literal, `json.decode(...)`, ...) is checked element by element when first stored under a typed name and then adopts that element type. A list that already has a different element type is rejected (`list<string> s = ints` is an error).
-- **Functions:** parameters and return types are optional; when written they are enforced, and so is the number of arguments. A function declared with a non-void return type must return a value; a `void` function must not.
+- **Functions:** parameters and return types are optional; when written they are enforced, and so is the number of arguments. A function declared with a non-void return type must return a value; a `void` function must not. A bare `return` (or `return` of a void call, e.g. `return log("done")`) ends the function early and returns nothing, also from inside loops and `try`.
 - **Classes:** assigning to an undeclared field (`obj.missing = 1`) is an error.
 - **Maps:** reading a missing key (`m["nope"]`) is an error; use `m.has(k)` or `m.get(k, default)`.
 ## 3. Variables and Scope
@@ -164,6 +165,8 @@ Native modules provided:
 - `json`: `encode`, `decode` (see `lib/json_module.h`)
 - `encoding`: `base64_encode`, `base64_decode`, `base64url_encode`, `base64url_decode`, `hex_encode`, `hex_decode` (see `lib/encoding_module.h`)
 - `crypto`: secure randomness (`random_bytes`, `random_token`, `random_int`), `sha256`, `hmac_sha256`, `timing_safe_equal`, passwords (`hash_password`, `verify_password`), `pbkdf2_sha256`. Results are raw bytes; use `encoding` to print/store them. See `lib/crypto_module.h`.
+- `sqlite`: `open(path)` -> `Database` (`execute`, `query` -> `list<map>`, `execute_script`, `last_insert_id`, `begin`/`commit`/`rollback`, `close`). Values are passed as `?` / `:name` parameters, never spliced into SQL. SQLite is vendored in `third_party/sqlite/`. See `lib/sqlite_module.h`.
+- `template`: HTML templates, a strict typed dialect of Handlebars. `template.load(path)` / `template.compile(text)` -> `Template` (`render(map)`, `helper(name, function)`), `template.escape`. Tags: `{{ expr }}` (escaped), `{{raw expr}}`, `{{#if}}/{{else if}}/{{else}}/{{/if}}`, `{{#each list as item}}/{{else}}/{{/each}}` with `@index/@first/@last`, `{{helper args}}`, `{{> partial}}`, `{{! comment }}`. Conditions must be bool; unknown names are errors reported as file:line:column. See `lib/template_module.h`.
 - `regex`: `compile(pattern)` -> `Regex` (`test`, `find` -> `Match` or void, `find_all`, `replace`, `split`), `escape`. Linear-time engine (no backreferences/lookaround). See `lib/regex_module.h`.
 - `integer`: `toString`, `fromString`
 

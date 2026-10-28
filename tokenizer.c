@@ -106,7 +106,7 @@ const char *keywords[] = {
     "print", "define", "return", "int", "string", "void", "float", "bool",
     "if", "else", "elif", "while", "for", "foreach", "in", "do", "switch", "case", "default",
     "break", "continue", "pass", "true", "false", "and", "or", "map", "import",
-    "class", "new", "list", "extends", "try", "rescue", "finally", "raise", NULL
+    "class", "new", "list", "extends", "try", "rescue", "finally", "raise", "buffer", NULL
 };
 
 /**

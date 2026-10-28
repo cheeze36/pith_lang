@@ -1,0 +1,9 @@
+{{> header}}
+<h1>Create an account</h1>
+{{#if error != ""}}<p class="error">{{error}}</p>{{/if}}
+<form method="post" action="/register" class="stacked">
+  <label>Username <input name="username" value="{{username_value}}" pattern="[A-Za-z0-9_]{3,20}" required autofocus></label>
+  <label>Password (8 characters or more) <input name="password" type="password" minlength="8" required></label>
+  <button>Register</button>
+</form>
+{{> footer}}

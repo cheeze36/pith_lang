@@ -1,0 +1,45 @@
+###
+# Tests for the sys module. Output is kept machine-independent (no absolute
+# paths or platform-specific values are printed directly).
+###
+
+import "io"
+import "sys"
+
+# run_tests.sh passes no script arguments
+print(sys.args().len())
+print(sys.script().endswith("test_sys.pith"))
+
+# environment variables
+print(sys.env("PITH_TEST_SURELY_UNSET", "fallback"))
+print(sys.has_env("PITH_TEST_SURELY_UNSET"))
+sys.set_env("PITH_TEST_SURELY_UNSET", "set now")
+print(sys.has_env("PITH_TEST_SURELY_UNSET"))
+print(sys.env("PITH_TEST_SURELY_UNSET"))
+try:
+    sys.env("PITH_ANOTHER_UNSET_VARIABLE")
+rescue e:
+    print(e)
+try:
+    sys.set_env("BAD=NAME", "x")
+rescue e:
+    print(e)
+
+# platform is one of the known names
+list<string> platforms = ["linux", "macos", "windows", "unix"]
+bool known = false
+foreach (string p in platforms):
+    if (p == sys.platform()):
+        known = true
+print(known)
+
+# chdir / cwd round trip
+string start = sys.cwd()
+sys.chdir(io.temp_dir())
+print(io.absolute_path(sys.cwd()) == io.absolute_path(io.temp_dir()))
+sys.chdir(start)
+print(sys.cwd() == start)
+try:
+    sys.chdir("no/such/directory/here")
+rescue e:
+    print(e.startswith("chdir(): could not change to 'no/such/directory/here'"))

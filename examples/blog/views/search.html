@@ -1,0 +1,16 @@
+{{> header}}
+<h1>Search</h1>
+<form method="get" action="/search" class="inline-search">
+  <input name="q" value="{{query}}" placeholder="Words to find" autofocus>
+  <button>Search</button>
+</form>
+{{#if searched}}
+<p>{{results.len()}} result{{#if results.len() != 1}}s{{/if}} for “{{query}}”</p>
+{{#each results as post}}
+<article class="summary">
+  <h2><a href="/posts/{{post.slug}}">{{post.title}}</a></h2>
+  <p>{{excerpt post.body 160}}</p>
+</article>
+{{/each}}
+{{/if}}
+{{> footer}}

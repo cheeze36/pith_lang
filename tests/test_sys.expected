@@ -1,0 +1,12 @@
+0
+true
+fallback
+false
+true
+set now
+env(): environment variable 'PITH_ANOTHER_UNSET_VARIABLE' is not set.
+set_env(): invalid variable name 'BAD=NAME'.
+true
+true
+true
+true

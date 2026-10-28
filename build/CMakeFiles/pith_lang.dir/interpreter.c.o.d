@@ -29,6 +29,7 @@ CMakeFiles/pith_lang.dir/interpreter.c.o: \
  /home/celdridge/projects/pith/pith_lang/pith_string.h \
  /home/celdridge/projects/pith/pith_lang/types.h \
  /home/celdridge/projects/pith/pith_lang/native_object.h \
+ /home/celdridge/projects/pith/pith_lang/pith_buffer.h \
  /home/celdridge/projects/pith/pith_lang/resolver.h \
  /home/celdridge/projects/pith/pith_lang/lib/time_module.h \
  /home/celdridge/projects/pith/pith_lang/value.h \
@@ -39,6 +40,8 @@ CMakeFiles/pith_lang.dir/interpreter.c.o: \
  /home/celdridge/projects/pith/pith_lang/lib/regex_module.h \
  /home/celdridge/projects/pith/pith_lang/lib/encoding_module.h \
  /home/celdridge/projects/pith/pith_lang/lib/crypto_module.h \
+ /home/celdridge/projects/pith/pith_lang/lib/sqlite_module.h \
+ /home/celdridge/projects/pith/pith_lang/lib/template_module.h \
  /home/celdridge/projects/pith/pith_lang/lib/gui.h /usr/include/stdio.h \
  /usr/include/x86_64-linux-gnu/bits/types/__fpos_t.h \
  /usr/include/x86_64-linux-gnu/bits/types/__mbstate_t.h \

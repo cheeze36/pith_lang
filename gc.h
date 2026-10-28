@@ -92,6 +92,7 @@ static inline ObjHeader *value_object(Value v)
         case VAL_STRUCT_DEF: return (ObjHeader *) v.struct_def;
         case VAL_STRUCT_INSTANCE: return (ObjHeader *) v.struct_instance;
         case VAL_NATIVE_OBJECT: return (ObjHeader *) v.native;
+        case VAL_BUFFER: return (ObjHeader *) v.buffer;
         default: return NULL; // Numbers, bools, void, native functions: nothing to collect.
     }
 }

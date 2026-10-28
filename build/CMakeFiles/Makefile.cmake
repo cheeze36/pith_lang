@@ -107,6 +107,7 @@ set(CMAKE_MAKEFILE_PRODUCTS
 # Dependency information for all targets:
 set(CMAKE_DEPEND_INFO_FILES
   "CMakeFiles/pith_lang.dir/DependInfo.cmake"
+  "CMakeFiles/pith_sqlite.dir/DependInfo.cmake"
   "_deps/raylib-build/CMakeFiles/uninstall.dir/DependInfo.cmake"
   "_deps/raylib-build/raylib/CMakeFiles/raylib.dir/DependInfo.cmake"
   "_deps/raylib-build/raylib/external/glfw/src/CMakeFiles/glfw.dir/DependInfo.cmake"

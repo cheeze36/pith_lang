@@ -1,4 +1,5 @@
 /home/celdridge/projects/pith/pith_lang/build/CMakeFiles/pith_lang.dir
+/home/celdridge/projects/pith/pith_lang/build/CMakeFiles/pith_sqlite.dir
 /home/celdridge/projects/pith/pith_lang/build/CMakeFiles/package.dir
 /home/celdridge/projects/pith/pith_lang/build/CMakeFiles/package_source.dir
 /home/celdridge/projects/pith/pith_lang/build/CMakeFiles/edit_cache.dir

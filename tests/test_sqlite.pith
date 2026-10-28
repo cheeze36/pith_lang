@@ -1,0 +1,195 @@
+###
+# Tests for the sqlite module: schema, parameters (positional and named),
+# value types in both directions, SQL injection resistance, constraint and
+# usage errors, transactions, persistence to a file, and close().
+###
+
+import "sqlite"
+import "io"
+import "time"
+
+Database db = sqlite.open(":memory:")
+db.execute_script("
+    CREATE TABLE users (
+        id    INTEGER PRIMARY KEY,
+        name  TEXT NOT NULL,
+        email TEXT UNIQUE,
+        age   INTEGER,
+        score REAL
+    );
+    CREATE TABLE posts (
+        id      INTEGER PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        body    TEXT,
+        data    BLOB
+    );
+")
+
+# --- inserting with positional (?) and named (:name) parameters ---
+print(db.execute("INSERT INTO users (name, email, age, score) VALUES (?, ?, ?, ?)",
+                 ["Ann", "ann@example.com", 31, 9.5]))
+int ann = db.last_insert_id()
+db.execute("INSERT INTO users (name, email, age, score) VALUES (:name, :email, :age, :score)",
+           {"name": "Bob", "email": "bob@example.com", "age": 25, "score": 7})
+int bob = db.last_insert_id()
+db.execute("INSERT INTO users (name, email, age, score) VALUES (?, ?, ?, ?)", ["Cy", void, void, void])
+print(str(ann) + " " + str(bob))
+
+# --- querying: rows are maps from column name to typed values ---
+list<map> rows = db.query("SELECT id, name, age, score FROM users ORDER BY id")
+print(rows.len())
+foreach (map row in rows):
+    print(row)
+map first = rows[0]
+int age = first["age"]
+float score = first["score"]
+string name = first["name"]
+print(name + " " + str(age) + " " + str(score))
+print(rows[1]["score"])                       # int 7 was stored in a REAL column
+print(rows[2]["age"] == void)                 # NULL reads back as void
+try:
+    string missing_age = rows[2]["age"]
+rescue e:
+    print(e)
+print(db.query("SELECT name FROM users WHERE age > ?", [30]))
+print(db.query("SELECT count(*) AS n FROM users")[0]["n"])
+
+# --- UPDATE / DELETE report the number of changed rows ---
+print(db.execute("UPDATE users SET age = age + 1 WHERE age IS NOT NULL"))
+print(db.execute("DELETE FROM users WHERE name = ?", ["Nobody"]))
+
+# --- bool, buffer (BLOB) and binary text ---
+buffer blob = buffer("\x00\x01\xff")
+db.execute("INSERT INTO posts (user_id, body, data) VALUES (?, ?, ?)", [ann, "hi\x00there", blob])
+db.execute("INSERT INTO posts (user_id, body, data) VALUES (?, ?, ?)", [ann, "flag", true])
+list<map> posts = db.query("SELECT body, data FROM posts ORDER BY id")
+print(posts[0]["body"].len())
+print(posts[0]["data"] == "\x00\x01\xff")
+print(posts[1]["data"])
+db.execute("INSERT INTO posts (user_id, body, data) VALUES (?, ?, ?)", [ann, "empty", buffer()])
+print(db.query("SELECT length(data) AS n, typeof(data) AS t FROM posts WHERE body = 'empty'")[0])
+
+# --- parameters are data, never SQL (no injection) ---
+string hostile = "x'); DROP TABLE users; --"
+db.execute("INSERT INTO users (name) VALUES (?)", [hostile])
+print(db.query("SELECT name FROM users WHERE name = ?", [hostile])[0]["name"] == hostile)
+print(db.query("SELECT count(*) AS n FROM users")[0]["n"])
+
+# --- constraint errors are rescuable and say what failed ---
+try:
+    db.execute("INSERT INTO users (name, email) VALUES (?, ?)", ["Dup", "ann@example.com"])
+rescue e:
+    print(e)
+try:
+    db.execute("INSERT INTO users (name) VALUES (?)", [void])
+rescue e:
+    print(e)
+try:
+    db.execute("INSERT INTO posts (user_id, body) VALUES (?, ?)", [999, "orphan"])
+rescue e:
+    print(e)
+
+# --- usage errors ---
+try:
+    db.query("SELEC name FROM users")
+rescue e:
+    print(e)
+try:
+    db.execute("INSERT INTO users (name, age) VALUES (?, ?)", ["only one"])
+rescue e:
+    print(e)
+try:
+    db.query("SELECT * FROM users WHERE id = ?")
+rescue e:
+    print(e)
+try:
+    db.query("SELECT * FROM users WHERE id = ?", [1, 2])
+rescue e:
+    print(e)
+try:
+    db.query("SELECT * FROM users WHERE id = :id", {"identifier": 1})
+rescue e:
+    print(e)
+try:
+    db.query("SELECT * FROM users WHERE id = :id", {"id": 1, "extra": 2})
+rescue e:
+    print(e)
+try:
+    db.query("SELECT * FROM users WHERE id = ?", {"id": 1})
+rescue e:
+    print(e)
+try:
+    db.execute("INSERT INTO users (name) VALUES (?)", [[1, 2]])
+rescue e:
+    print(e)
+try:
+    db.execute("DELETE FROM posts; DELETE FROM users")
+rescue e:
+    print(e)
+try:
+    db.execute("   -- only a comment")
+rescue e:
+    print(e)
+try:
+    db.query(42)
+rescue e:
+    print(e)
+try:
+    db.query("SELECT 1", "not params")
+rescue e:
+    print(e)
+print(db.query("SELECT 1 AS one; -- trailing comment is fine")[0]["one"])
+
+# --- transactions ---
+db.begin()
+db.execute("INSERT INTO users (name) VALUES ('Temporary')")
+db.rollback()
+print(db.query("SELECT count(*) AS n FROM users WHERE name = 'Temporary'")[0]["n"])
+db.begin()
+db.execute("INSERT INTO users (name) VALUES ('Kept')")
+db.commit()
+print(db.query("SELECT count(*) AS n FROM users WHERE name = 'Kept'")[0]["n"])
+
+# bulk inserts inside one transaction are fast
+float start = time.perf()
+db.begin()
+for (int i = 0; i < 5000; i = i + 1):
+    db.execute("INSERT INTO posts (user_id, body) VALUES (?, ?)", [bob, "post " + str(i)])
+db.commit()
+print(db.query("SELECT count(*) AS n FROM posts WHERE user_id = ?", [bob])[0]["n"])
+print(time.perf() - start < 10.0)
+
+# --- persistence: a file database survives close and reopen ---
+string path = io.join_path(io.temp_dir(), "pith_sqlite_test_" + str(time.now()) + ".db")
+Database file_db = sqlite.open(path)
+file_db.execute_script("CREATE TABLE notes (text TEXT); INSERT INTO notes VALUES ('saved');")
+file_db.close()
+Database reopened = sqlite.open(path)
+print(reopened.query("SELECT text FROM notes")[0]["text"])
+reopened.close()
+io.remove(path)
+
+# --- close(): every later use is an error ---
+Database alias = db
+db.close()
+print(alias.is_closed())
+try:
+    alias.query("SELECT 1")
+rescue e:
+    print(e)
+try:
+    db.close()
+rescue e:
+    print("second close: " + e)
+
+# --- typing ---
+try:
+    Database wrong = "app.db"
+rescue e:
+    print(e)
+Database none
+print(none == void)
+try:
+    sqlite.open("/no/such/directory/x.db")
+rescue e:
+    print(e)

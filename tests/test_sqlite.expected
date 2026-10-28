@@ -1,0 +1,47 @@
+1
+1 2
+3
+{id: 1, name: Ann, age: 31, score: 9.500000}
+{id: 2, name: Bob, age: 25, score: 7.000000}
+{id: 3, name: Cy, age: void, score: void}
+Ann 31 9.5
+7.000000
+true
+Type mismatch: variable 'missing_age' expects string, got void.
+[{name: Ann}]
+3
+2
+0
+8
+true
+1
+{n: 0, t: blob}
+true
+4
+execute(): UNIQUE constraint failed: users.email
+execute(): NOT NULL constraint failed: users.name
+execute(): FOREIGN KEY constraint failed
+query(): near "SELEC": syntax error
+execute(): the SQL has 2 placeholders but 1 value was given.
+query(): the SQL has 1 placeholder but no values were given.
+query(): the SQL has 1 placeholder but 2 values were given.
+query(): no value given for placeholder :id.
+query(): the SQL has no placeholder :extra for the value given under that name.
+query(): the SQL uses ? placeholders; pass the values as a list, not a map.
+execute(): parameter 1 is a list, which cannot be stored (use int, float, string, buffer, bool or void).
+execute(): the SQL contains more than one statement; use execute_script() for several.
+execute(): the SQL contains no statement.
+query(): the SQL must be a string, got int.
+query(): parameters must be a list (for ? placeholders) or a map (for :name placeholders), got string.
+1
+0
+1
+5000
+true
+saved
+true
+This database was closed with close(); it can no longer be used.
+second close: This database was closed with close(); it can no longer be used.
+Type mismatch: variable 'wrong' expects Database, got string.
+true
+sqlite.open(): could not open '/no/such/directory/x.db': unable to open database file

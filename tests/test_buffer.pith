@@ -1,0 +1,201 @@
+###
+# Tests for the built-in `buffer` type: creation, methods, indexing and
+# slicing, binary data, strict typing, and the free() contract.
+###
+
+import "time"
+
+# --- creating ---
+buffer empty = buffer()
+buffer reserved = buffer(64)
+buffer greeting = buffer("Hello")
+buffer zero
+print(empty.len())
+print(reserved.len())
+print(reserved.capacity() >= 64)
+print(greeting)
+print(zero.len())
+
+# --- append: strings and buffers ---
+buffer out = buffer()
+out.append("Hello")
+out.append(", ")
+out.append(buffer("world"))
+print(out)
+print(out.len())
+
+# appending a buffer to itself doubles it
+buffer twice = buffer("ab")
+twice.append(twice)
+print(twice)
+
+# --- insert at the start, middle and end; negative positions count from the end ---
+buffer text = buffer("ace")
+text.insert(1, "b")
+text.insert(3, "d")
+text.insert(0, ">")
+text.insert(text.len(), "<")
+print(text)
+text.insert(-1, "!")
+print(text)
+
+# inserting a buffer into itself, where the copied part straddles the insertion point
+buffer mirror = buffer("abcd")
+mirror.insert(2, mirror)
+print(mirror)
+
+# --- remove, clear, find ---
+buffer edit = buffer("Hello, cruel world")
+edit.remove(7, 13)
+print(edit)
+edit.remove(-6, -1)
+print(edit)
+print(edit.find("Hello"))
+print(edit.find(buffer("d")))
+print(edit.find("missing"))
+int capacity_before = edit.capacity()
+edit.clear()
+print(edit.len())
+print(edit.capacity() == capacity_before)
+
+# --- indexing and slicing (bytes, like strings) ---
+buffer word = buffer("Jello")
+print(word[0] + word[-1])
+word[0] = "H"
+print(word)
+print(word[1:3])
+print(word[:2])
+print(word[-3:])
+print(word[0:100])
+
+# --- binary data ---
+buffer binary = buffer()
+binary.append("\x00\x01")
+binary.append("\xff")
+print(binary.len())
+print(binary.to_string() == "\x00\x01\xff")
+print(binary[2] == "\xff")
+
+# --- conversion: to_string() and str() give immutable copies ---
+buffer source = buffer("abc")
+string copy = source.to_string()
+source[0] = "X"
+print(copy)
+print(str(source))
+
+# --- strict typing ---
+define void add_row(buffer target, string cell):
+    target.append(cell)
+    target.append(";")
+
+buffer rows = buffer()
+add_row(rows, "a")
+add_row(rows, "b")
+print(rows)
+list<buffer> parts = [buffer("x"), buffer("y")]
+print(parts.len())
+try:
+    buffer wrong = "text"
+rescue e:
+    print(e)
+try:
+    string also_wrong = buffer("text")
+rescue e:
+    print(e)
+try:
+    add_row("not a buffer", "x")
+rescue e:
+    print(e)
+try:
+    print("a" + buffer("b"))
+rescue e:
+    print(e)
+try:
+    word[0] = "too long"
+rescue e:
+    print(e)
+try:
+    word[0] = 72
+rescue e:
+    print(e)
+try:
+    print(word[5])
+rescue e:
+    print(e)
+try:
+    word.insert(99, "x")
+rescue e:
+    print(e)
+try:
+    word.remove(3, 1)
+rescue e:
+    print(e)
+try:
+    word.append(5)
+rescue e:
+    print(e)
+try:
+    buffer(-1)
+rescue e:
+    print(e)
+
+# --- identity: == compares buffers, not contents (like lists) ---
+buffer one = buffer("same")
+buffer other = buffer("same")
+buffer alias = one
+print(one == alias)
+print(one == other)
+print(one.to_string() == other.to_string())
+
+# --- free(): releases memory; every later use, through any reference, is an error ---
+buffer big = buffer(1000000)
+big.append("data")
+buffer same_buffer = big
+print(big.is_freed())
+big.free()
+print(big.is_freed())
+print(same_buffer.is_freed())
+try:
+    same_buffer.append("x")
+rescue e:
+    print(e)
+try:
+    print(same_buffer.len())
+rescue e:
+    print(e)
+try:
+    print(same_buffer[0])
+rescue e:
+    print(e)
+try:
+    same_buffer[0] = "x"
+rescue e:
+    print(e)
+try:
+    print(same_buffer[0:1])
+rescue e:
+    print(e)
+try:
+    print(same_buffer)
+rescue e:
+    print(e)
+try:
+    print(str(same_buffer))
+rescue e:
+    print(e)
+try:
+    out.append(same_buffer)
+rescue e:
+    print(e)
+try:
+    big.free()
+rescue e:
+    print("second free: " + e)
+
+# --- appending is linear time: 200,000 appends finish quickly ---
+float start = time.perf()
+buffer many = buffer()
+for (int i = 0; i < 200000; i = i + 1):
+    many.append("x")
+print(many.len())
+print(time.perf() - start < 5.0)

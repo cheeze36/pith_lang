@@ -1,0 +1,67 @@
+###
+# Tests for map methods (len, has, get, keys, values, remove), iterating a map,
+# insertion order, growth past many keys, and the string find/replace methods.
+###
+
+map<string, int> stock = {"apples": 3, "pears": 0}
+stock["plums"] = 7
+print(stock.len())
+print(stock.has("pears"))
+print(stock.has("kiwis"))
+print(stock.get("plums", -1))
+print(stock.get("kiwis", -1))
+try:
+    stock.get("kiwis", "none")
+rescue e:
+    print(e)
+
+# Keys, values, foreach and printing all follow insertion order.
+print(stock.keys())
+print(stock.values())
+foreach (string fruit in stock):
+    print(fruit + "=" + str(stock[fruit]))
+print(stock)
+
+# Re-setting a key keeps its original position.
+stock["apples"] = 10
+print(stock.keys())
+
+print(stock.remove("pears"))
+print(stock.keys())
+try:
+    stock.remove("pears")
+rescue e:
+    print(e)
+
+# keys() and values() are typed lists.
+list<string> names = stock.keys()
+list<int> counts = stock.values()
+print(names.len() + counts.len())
+
+# A map grows (and rehashes) as keys are added; order is still preserved.
+map<string, int> big
+for (int i = 0; i < 1000; i = i + 1):
+    big["k" + str(i)] = i
+print(big.len())
+print(big["k0"] + big["k999"])
+list<string> big_keys = big.keys()
+print(big_keys[0] + " " + big_keys[500] + " " + big_keys[999])
+int removed = 0
+for (int i = 0; i < 1000; i = i + 2):
+    big.remove("k" + str(i))
+    removed = removed + 1
+print(big.len())
+print(big.has("k1") and !big.has("k2"))
+
+# --- string find / replace ---
+string path = "/users/42/posts"
+print(path.find("/42"))
+print(path.find("nope"))
+print(path.replace("/", "|"))
+print("aaa".replace("a", "bb"))
+print("hello".replace("l", ""))
+print("café".replace("é", "e"))
+try:
+    "x".replace("", "y")
+rescue e:
+    print(e)

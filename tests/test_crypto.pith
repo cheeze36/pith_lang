@@ -1,0 +1,180 @@
+###
+# Tests for the encoding and crypto modules.
+#
+# Algorithms are checked against the published test vectors:
+#   SHA-256        FIPS 180-4 examples (NIST)
+#   HMAC-SHA256    RFC 4231, test cases 1, 2 and 6
+#   PBKDF2-SHA256  RFC 7914, section 11
+#   Base64         RFC 4648, section 10
+# Each check prints true/false against the published value, so a wrong
+# implementation cannot pass by matching its own output.
+###
+
+import "crypto"
+import "encoding"
+
+define bool hex_is(string bytes, string expected_hex):
+    return encoding.hex_encode(bytes) == expected_hex
+
+# --- encoding: base64 (RFC 4648 section 10) ---
+list<string> plain = ["", "f", "fo", "foo", "foob", "fooba", "foobar"]
+list<string> encoded = ["", "Zg==", "Zm8=", "Zm9v", "Zm9vYg==", "Zm9vYmE=", "Zm9vYmFy"]
+bool base64_ok = true
+for (int i = 0; i < plain.len(); i = i + 1):
+    if (encoding.base64_encode(plain[i]) != encoded[i] or encoding.base64_decode(encoded[i]) != plain[i]):
+        base64_ok = false
+print("base64 RFC 4648 vectors: " + str(base64_ok))
+
+# URL-safe variant: "-" and "_" instead of "+" and "/", and no padding
+string awkward = "\xfb\xff\xbf"
+print(encoding.base64_encode(awkward))
+print(encoding.base64url_encode(awkward))
+print(encoding.base64url_decode("-_-_") == awkward)
+print(encoding.base64url_encode("f"))
+print(encoding.base64url_decode("Zg") == "f")
+print(encoding.base64url_decode("Zg==") == "f")
+
+# hex
+print(encoding.hex_encode("\x00\x01\x7f\x80\xff"))
+print(encoding.hex_decode("00017F80ff") == "\x00\x01\x7f\x80\xff")
+
+# every byte value survives all three encodings
+string digits = "0123456789abcdef"
+string all_hex = ""
+for (int high = 0; high < 16; high = high + 1):
+    for (int low = 0; low < 16; low = low + 1):
+        all_hex = all_hex + digits[high] + digits[low]
+string all_bytes = encoding.hex_decode(all_hex)
+print(all_bytes.len())
+print(encoding.hex_encode(all_bytes) == all_hex)
+print(encoding.base64_decode(encoding.base64_encode(all_bytes)) == all_bytes)
+print(encoding.base64url_decode(encoding.base64url_encode(all_bytes)) == all_bytes)
+
+# invalid input is an error, never a silent partial result
+list<string> bad_base64 = ["Zg=", "Z", "Zm9v!", "Zh==", "Zg==Zg==", "===="]
+foreach (string text in bad_base64):
+    try:
+        encoding.base64_decode(text)
+        print("accepted: " + text)
+    rescue e:
+        print(e)
+try:
+    encoding.base64_decode("Zg")
+rescue e:
+    print("standard base64 requires padding: " + e)
+try:
+    encoding.hex_decode("abc")
+rescue e:
+    print(e)
+try:
+    encoding.hex_decode("zz")
+rescue e:
+    print(e)
+try:
+    encoding.hex_encode(42)
+rescue e:
+    print(e)
+
+# --- SHA-256 (FIPS 180-4 examples) ---
+print(hex_is(crypto.sha256(""), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"))
+print(hex_is(crypto.sha256("abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"))
+print(hex_is(crypto.sha256("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"),
+             "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1"))
+print(hex_is(crypto.sha256("a".repeat(1000000)),
+             "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0"))
+# lengths around the 55/56/64-byte padding boundaries hash consistently
+bool boundaries_ok = true
+foreach (int n in [55, 56, 63, 64, 65, 119, 120, 128]):
+    if (crypto.sha256("x".repeat(n)).len() != 32):
+        boundaries_ok = false
+print(boundaries_ok)
+
+# --- HMAC-SHA256 (RFC 4231) ---
+print(hex_is(crypto.hmac_sha256(encoding.hex_decode("0b".repeat(20)), "Hi There"),
+             "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7"))
+print(hex_is(crypto.hmac_sha256("Jefe", "what do ya want for nothing?"),
+             "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843"))
+print(hex_is(crypto.hmac_sha256(encoding.hex_decode("aa".repeat(131)),
+                                "Test Using Larger Than Block-Size Key - Hash Key First"),
+             "60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54"))
+
+# --- PBKDF2-HMAC-SHA256 (RFC 7914 section 11) ---
+print(hex_is(crypto.pbkdf2_sha256("passwd", "salt", 1, 64),
+             "55ac046e56e3089fec1691c22544b605f94185216dde0465e68b9d57c20dacbc49ca9cccf179b645991664b39d77ef317c71b845b1e30bd509112041d3a19783"))
+print(hex_is(crypto.pbkdf2_sha256("Password", "NaCl", 80000, 64),
+             "4ddcd8f60b98be21830cee5ef22701f9641a4418d04c0414aeff08876b34ab56a1d425a1225833549adb841b51c9b3176a272bdebba1d078478f62b397f33c8d"))
+
+# --- timing-safe comparison ---
+print(crypto.timing_safe_equal("token-123", "token-123"))
+print(crypto.timing_safe_equal("token-123", "token-124"))
+print(crypto.timing_safe_equal("short", "shorter"))
+print(crypto.timing_safe_equal("", ""))
+
+# --- secure randomness ---
+print(crypto.random_bytes(16).len())
+print(crypto.random_bytes(0).len())
+print(crypto.random_bytes(32) != crypto.random_bytes(32))
+string token = crypto.random_token()
+print(token.len())
+
+# tokens use only URL-safe characters
+string url_safe = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+bool token_chars_ok = true
+for (int i = 0; i < token.len(); i = i + 1):
+    if (!url_safe.contains(token[i])):
+        token_chars_ok = false
+print(token_chars_ok)
+print(crypto.random_token(16).len())
+print(crypto.random_token() != crypto.random_token())
+bool ints_in_range = true
+for (int i = 0; i < 1000; i = i + 1):
+    int roll = crypto.random_int(1, 6)
+    if (roll < 1 or roll > 6):
+        ints_in_range = false
+print(ints_in_range)
+print(crypto.random_int(7, 7))
+
+# --- password hashing ---
+string stored = crypto.hash_password("correct horse battery staple")
+print(stored.startswith("$pbkdf2-sha256$i=600000$"))
+print(stored.split("$").len())
+print(crypto.verify_password("correct horse battery staple", stored))
+print(crypto.verify_password("correct horse battery stapl", stored))
+print(crypto.verify_password("", stored))
+string again = crypto.hash_password("correct horse battery staple")
+print(again != stored)
+# hashes from other implementations in the same format verify too (here: 1000 iterations)
+string salt = "fixedsalt1234567"
+string other = "$pbkdf2-sha256$i=1000$" + encoding.base64_encode(salt).replace("=", "") + "$" + encoding.base64_encode(crypto.pbkdf2_sha256("pw", salt, 1000, 32)).replace("=", "")
+print(crypto.verify_password("pw", other))
+print(crypto.verify_password("pW", other))
+
+# --- strong typing and validation ---
+try:
+    crypto.sha256(123)
+rescue e:
+    print(e)
+try:
+    crypto.random_bytes(-1)
+rescue e:
+    print(e)
+try:
+    crypto.random_token(0)
+rescue e:
+    print(e)
+try:
+    crypto.random_int(5, 1)
+rescue e:
+    print(e)
+try:
+    crypto.pbkdf2_sha256("p", "s", 0, 32)
+rescue e:
+    print(e)
+try:
+    crypto.verify_password("pw", "plaintext-password")
+rescue e:
+    print(e)
+try:
+    crypto.hmac_sha256("key")
+rescue e:
+    print(e)

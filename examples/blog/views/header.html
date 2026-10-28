@@ -1,0 +1,30 @@
+{{! Shared page header, included at the top of every view. Needs page_title,
+    logged_in, username and csrf (see page_data() in blog.pith). }}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{page_title}} · Pith blog</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="alternate" type="application/rss+xml" title="Pith blog" href="/feed.xml">
+</head>
+<body>
+<header class="site">
+  <a class="brand" href="/">Pith blog</a>
+  <nav>
+    <a href="/search">Search</a>
+    {{#if logged_in}}
+    <a href="/new">New post</a>
+    <span class="user">{{username}}</span>
+    <form class="inline" method="post" action="/logout">
+      <input type="hidden" name="csrf" value="{{csrf}}">
+      <button>Log out</button>
+    </form>
+    {{else}}
+    <a href="/login">Log in</a>
+    <a href="/register">Register</a>
+    {{/if}}
+  </nav>
+</header>
+<main>

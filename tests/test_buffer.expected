@@ -1,0 +1,59 @@
+0
+0
+true
+Hello
+0
+Hello, world
+12
+abab
+>abcde<
+>abcde!<
+ababcdcd
+Hello, world
+Hello,d
+0
+6
+-1
+0
+true
+Jo
+Hello
+el
+He
+llo
+Hello
+3
+true
+true
+abc
+Xbc
+a;b;
+2
+Type mismatch: variable 'wrong' expects buffer, got string.
+Type mismatch: variable 'also_wrong' expects string, got buffer.
+Type mismatch: argument 1 ('target') of 'add_row' expects buffer, got string.
+Operator '+' cannot be applied to string and buffer.
+A buffer element must be assigned a one-byte string, got a string of another length.
+A buffer element must be assigned a one-byte string, got int.
+Buffer index 5 out of range (length 5).
+insert(): index 99 is out of range (the buffer has 5 bytes).
+remove(): end (1) is before start (3).
+append(): the text must be a string or a buffer, got int.
+buffer(): capacity must be between 0 and 2147483647, got -1.
+true
+false
+true
+false
+true
+true
+This buffer was freed with free(); it can no longer be used.
+This buffer was freed with free(); it can no longer be used.
+This buffer was freed with free(); it can no longer be used.
+This buffer was freed with free(); it can no longer be used.
+This buffer was freed with free(); it can no longer be used.
+This buffer was freed with free(); it can no longer be used.
+This buffer was freed with free(); it can no longer be used.
+This buffer was freed with free(); it can no longer be used.
+second free: This buffer was freed with free(); it can no longer be used.
+200000
+true

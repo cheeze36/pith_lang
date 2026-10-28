@@ -1,0 +1,53 @@
+###
+# Regression tests for interpreter robustness: deep recursion, deeply nested
+# data, self-containing containers, reserved native type names, and module
+# import errors. Each of these used to crash or misbehave.
+###
+
+import "regex"
+
+# --- runaway recursion is a rescuable error, not a crash ---
+define int depth(int n):
+    if (n == 0):
+        return 0
+    return 1 + depth(n - 1)
+
+print(depth(1000))   # well within the limit even in debug/sanitizer builds
+try:
+    depth(100000000)
+    print("not reached")
+rescue e:
+    print(e.startswith("Stack overflow"))
+print(depth(10))
+
+# --- deeply nested data survives garbage collection (marking is iterative) ---
+list root = []
+list current = root
+for (int i = 0; i < 100000; i = i + 1):
+    list next = []
+    current.append(next)
+    current = next
+string filler = "x".repeat(2000000)   # plenty of allocation, so collections run
+int levels = 0
+list walker = root
+while (walker.len() > 0):
+    walker = walker[0]
+    levels = levels + 1
+print(levels)
+
+# --- printing a container that contains itself ---
+list loop = [1, 2]
+loop.append(loop)
+print(loop)
+map self_map = {"name": "m"}
+self_map["me"] = self_map
+print(self_map)
+list pair = [loop, loop]
+print(pair.len())
+
+
+# --- module errors name the problem ---
+try:
+    regex.no_such_function()
+rescue e:
+    print(e)

@@ -1,0 +1,16 @@
+###
+# A map<...> declaration initialized from an expression (not a { } literal)
+# binds the map the expression returns.
+###
+
+define make_scores():
+    map<string, int> scores = {"ann": 3, "bob": 5}
+    return scores
+
+map<string, int> s = make_scores()
+print(s["ann"])
+print(s["bob"])
+
+map<string, int> alias = s
+alias["ann"] = 10
+print(s["ann"])

@@ -1,0 +1,16 @@
+{{> header}}
+<h1>Latest posts</h1>
+{{#each posts as post}}
+<article class="summary">
+  <h2><a href="/posts/{{post.slug}}">{{post.title}}</a></h2>
+  <p class="meta">by {{post.author}} on {{date post.created}} · {{post.comment_count}} comment{{#if post.comment_count != 1}}s{{/if}}</p>
+  <p>{{excerpt post.body 240}}</p>
+</article>
+{{else}}
+<p class="empty">No posts yet.{{#if logged_in}} <a href="/new">Write the first one.</a>{{/if}}</p>
+{{/each}}
+<nav class="pages">
+  {{#if has_previous}}<a href="/?page={{page - 1}}">&larr; Newer</a>{{/if}}
+  {{#if has_next}}<a href="/?page={{page + 1}}">Older &rarr;</a>{{/if}}
+</nav>
+{{> footer}}

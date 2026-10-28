@@ -1,0 +1,50 @@
+###
+# Server used by tests/http/run_http_tests.sh (driven with curl).
+###
+
+import "http"
+import "json"
+
+int server = http.listen(18099)
+
+define void home(map<string, string> req):
+    http.respond(server, 200, "home")
+
+define void show_user(map<string, string> req):
+    int id = int(http.param(req, "id"))
+    http.respond(server, 200, json.encode({"id": id, "next": id + 1}), "application/json")
+
+define void create_user(map<string, string> req):
+    map<string, string> form = http.parse_query(req["body"])
+    http.respond(server, 201, "created " + form["name"], {"Location": "/users/7"})
+
+define void files(map<string, string> req):
+    http.respond(server, 200, "rest=" + http.param(req, "*"))
+
+define void crash(map<string, string> req):
+    int x = 1 / 0
+
+define void silent(map<string, string> req):
+    int nothing = 0
+
+define void echo_headers(map<string, string> req):
+    http.respond(server, 200, http.header(req, "X-Test") + "|" + req["query"])
+
+define void shutdown(map<string, string> req):
+    http.respond(server, 200, "bye")
+    http.stop(server)
+
+http.route(server, "GET", "/", home)
+http.route(server, "GET", "/users/:id", show_user)
+http.route(server, "POST", "/users", create_user)
+http.route(server, "GET", "/files/*", files)
+http.route(server, "GET", "/crash", crash)
+http.route(server, "GET", "/silent", silent)
+http.route(server, "*", "/echo", echo_headers)
+http.route(server, "POST", "/shutdown", shutdown)
+http.static(server, "/assets", "tests/http/public")
+
+print("ready")
+http.serve(server)
+http.close(server)
+print("stopped")

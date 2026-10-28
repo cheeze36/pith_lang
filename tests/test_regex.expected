@@ -1,0 +1,68 @@
+\d+\.\d+
+8
+quote " inside
+true
+(?<year>\d{4})-(?<month>\d\d)-(?<day>\d\d)
+3
+2026-10-23
+true
+2026 10 23
+9..19
+17..19
+[2026, 10, 23]
+{year: 2026, month: 10, day: 23}
+true
+true
+[a, , c]
+-1
+3
+one@0
+two@4
+three@9
+3
+23.10.2026 / 02.01.2025
+home:ann work:bob
+a#b##
+no match
+cost: 5$ USD
+[a, b, c, d]
+[a, , b, ]
+<b>bold</b>
+<b>
+a
+123
+12
+true
+false
+2
+HeLLo
+3
+false
+true
+café
+3..8
+true
+éê
+1\+1\=2\? \(yes\)
+true
+false
+regex.compile(): missing ) to close a group (at offset 4 in "(abc").
+regex.compile(): unmatched ) (at offset 3 in "abc)").
+regex.compile(): missing ] to close a character class (at offset 3 in "[a-").
+regex.compile(): multiple quantifiers in a row (use a group, e.g. (a+)*) (at offset 2 in "a**").
+regex.compile(): nothing to repeat before a quantifier (at offset 0 in "*a").
+regex.compile(): lookahead (?= / (?! is not supported (it cannot be matched in linear time) (at offset 2 in "(?=x)").
+regex.compile(): backreferences are not supported (they cannot be matched in linear time) (at offset 1 in "\1").
+regex.compile(): character range is out of order (at offset 4 in "[z-a]").
+regex.compile(): repetition {n,m} has m < n (at offset 1 in "a{3,1}").
+regex.compile(): unknown escape (escape punctuation with \, or use \d \w \s \b \n \t ...) (at offset 1 in "\q").
+Type mismatch: variable 'wrong' expects Regex, got string.
+Type mismatch: variable 'wrong_match' expects Match, got Regex.
+find(): argument 1 must be a string, got int.
+group(): group 9 does not exist (the pattern has 3).
+group(): the pattern has no group named 'nope'.
+Value of type 'Regex' has no field or method named 'nope'.
+true
+false
+<Regex>
+<Match>

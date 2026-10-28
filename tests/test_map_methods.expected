@@ -1,0 +1,29 @@
+3
+true
+false
+7
+-1
+Type mismatch: get() default expects int, got string.
+[apples, pears, plums]
+[3, 0, 7]
+apples=3
+pears=0
+plums=7
+{apples: 3, pears: 0, plums: 7}
+[apples, pears, plums]
+0
+[apples, plums]
+remove(): key 'pears' not found in map.
+4
+1000
+999
+k0 k500 k999
+500
+true
+6
+-1
+|users|42|posts
+bbbbbb
+heo
+cafe
+replace(): the string to replace must not be empty.

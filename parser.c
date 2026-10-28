@@ -376,9 +376,10 @@ ASTNode *parse_primary(ParserState *state)
         advance(state);
         return create_node(AST_VOID_LITERAL, NULL, t.line_num);
     }
-    // The conversion functions int(x) / float(x) share their names with the type
-    // keywords; followed by '(' they are calls to the native functions.
-    if (t.type == TOKEN_KEYWORD && (strcmp(t.value, "int") == 0 || strcmp(t.value, "float") == 0) &&
+    // The conversion functions int(x) / float(x) and the buffer(...) constructor
+    // share their names with type keywords; followed by '(' they are calls.
+    if (t.type == TOKEN_KEYWORD &&
+        (strcmp(t.value, "int") == 0 || strcmp(t.value, "float") == 0 || strcmp(t.value, "buffer") == 0) &&
         state->tokenizer_state->tokens[state->current_token + 1].type == TOKEN_LPAREN)
     {
         advance(state);
@@ -960,6 +961,7 @@ ASTNode *parse_statement(ParserState *state)
     }
     // --- Variable Declaration (Explicit Type) ---
     else if (t.type == TOKEN_KEYWORD && (strcmp(t.value, "int") == 0 || strcmp(t.value, "string") == 0 ||
+                                         strcmp(t.value, "buffer") == 0 ||
                                          strcmp(t.value, "float") == 0 || strcmp(t.value, "bool") == 0 ||
                                          strcmp(t.value, "map") == 0 || strcmp(t.value, "list") == 0) &&
              state->tokenizer_state->tokens[state->current_token + 1].type != TOKEN_LPAREN)
@@ -1229,7 +1231,10 @@ ASTNode *parse_statement(ParserState *state)
     {
         advance(state);
         ASTNode *node = create_node(AST_RETURN, NULL, t.line_num);
-        add_child(node, parse_expression(state));
+        // A bare `return` (end of line or block) has no value expression.
+        TokenType next = peek(state).type;
+        if (next != TOKEN_NEWLINE && next != TOKEN_DEDENT && next != TOKEN_EOF)
+            add_child(node, parse_expression(state));
         return node;
     }
     // --- Pass Statement ---

@@ -228,6 +228,45 @@ void reset_try_frames(void);
 Value interpreter_call(Value callee, Value *args, int arg_count, int line);
 
 /**
+ * @brief Runs @p body(@p context), catching any Pith error it raises.
+ *
+ * For native code that must add context to errors or clean up after them
+ * (e.g. the template renderer reports which template line failed). GC roots
+ * pushed inside @p body are released on error, as with a Pith `try`.
+ *
+ * @param error Receives the error message when @p body fails.
+ * @return 0 if @p body completed, 1 if it raised an error.
+ */
+int interpreter_run_protected(void (*body)(void *context), void *context, char *error, size_t error_size);
+
+/**
+ * @brief Applies a binary operator (+ - * / % ^ == != < > <= >=) with exactly
+ *        Pith's typing rules (int/float widening, string concatenation and
+ *        ordering, identity for heap values, checked integer overflow, errors
+ *        for mismatched types). Not for `and` / `or`, which short-circuit.
+ *
+ * Exposed so embedded languages (the template module) evaluate expressions
+ * exactly as Pith does.
+ *
+ * @param op The operator.
+ * @param operator_text Its spelling, for error messages (e.g. "+").
+ * @param line Source line for errors.
+ * @param left The left operand.
+ * @param right The right operand. Heap operands must be GC-rooted by the
+ *        caller (a string + may allocate).
+ * @return The result.
+ */
+Value apply_binary_operator(OpCode op, const char *operator_text, int line, Value left, Value right);
+
+/**
+ * @brief The `str()` conversion: int, float, bool, string or buffer to text.
+ *
+ * Other types raise an error. Usable by native modules that need Pith's
+ * canonical text form of a value (e.g. 2.5 -> "2.5", 3.0 -> "3.0").
+ */
+Value native_str(int arg_count, Value *args);
+
+/**
  * @brief Like interpreter_call(), but catches any error the call raises.
  *
  * For native code that runs Pith callbacks and must keep going when one fails

@@ -1,0 +1,11 @@
+{{! Used for both new posts and edits: heading, action, title, body, error. }}
+{{> header}}
+<h1>{{heading}}</h1>
+{{#if error != ""}}<p class="error">{{error}}</p>{{/if}}
+<form method="post" action="{{action}}" class="stacked">
+  <input type="hidden" name="csrf" value="{{csrf}}">
+  <label>Title <input name="title" value="{{title}}" maxlength="200" required></label>
+  <label>Text <textarea name="body" rows="14" required>{{body}}</textarea></label>
+  <button>Publish</button>
+</form>
+{{> footer}}

@@ -1,0 +1,114 @@
+###
+# Tests for strings: byte length vs character count, indexing, slicing,
+# escape sequences, immutability, and binary data (embedded NUL bytes).
+###
+
+import "integer"
+import "io"
+
+# --- len() counts bytes, count() counts characters ---
+string word = "héllo"
+print(word.len())      # 6: "é" is two bytes in UTF-8
+print(word.count())    # 5
+print("".len())
+print("".count())
+
+# --- indexing (bytes), negative indexes count from the end ---
+string s = "hello world"
+print(s[0])
+print(s[4])
+print(s[-1])
+print(s[-5])
+
+try:
+    print(s[11])
+rescue e:
+    print("rescued: " + e)
+
+try:
+    print(s[-12])
+rescue e:
+    print("rescued: " + e)
+
+# --- slicing: [start:end], either bound optional, negatives allowed, clamped ---
+print(s[0:5])
+print(s[6:])
+print(s[:5])
+print(s[-5:])
+print(s[:-6])
+print(s[3:3].len())
+print(s[8:3].len())    # empty when end < start
+print(s[0:100])        # clamped to the end
+print(s[:])            # whole string
+
+# --- strings are immutable ---
+try:
+    s[0] = "J"
+rescue e:
+    print("rescued: " + e)
+string rebuilt = "J" + s[1:]
+print(rebuilt)
+print(s)
+
+# --- escape sequences ---
+print("tab:[\t] quote:[\"] single:[\'] backslash:[\\]")
+print("\x41\x42\x43")            # ABC
+print("caf\u{e9}")               # café
+print("\u{1F600}".len())         # 4 bytes
+print("\u{1F600}".count())       # 1 character
+print("\e[0m".len())             # ESC + "[0m"
+print("a\0b".len())              # NUL is a real byte
+print("x\ry".len())
+
+# --- embedded NUL bytes behave like any other byte ---
+string bin = "ab\0cd"
+print(bin.len())
+print(bin[3])
+print(bin[2:].len())
+print(bin == "ab\0cd")
+print(bin == "ab\0ce")
+print(bin == "ab")
+print(bin.contains("\0c"))
+print(bin.startswith("ab\0"))
+print(bin.endswith("\0cd"))
+print((bin + bin).len())
+
+# --- string methods ---
+print("  padded  ".trim() + "|")
+print("Hello".upper() + " " + "Hello".lower())
+list<string> parts = "a,b,,c".split(",")
+print(parts.len())
+print(parts.join("+"))
+list<string> chars = "héllo".split("")
+print(chars.len())
+print(chars[1])
+print(chars.join("-"))
+
+# --- equality and switch on strings ---
+print("abc" == "abc")
+print("abc" != "abd")
+string cmd = "stop"
+switch (cmd):
+    case "go":
+        print("going")
+        break
+    case "stop":
+        print("stopping")
+        break
+
+# --- binary round trip through a file ---
+string payload = "\x00\x01\x02\xff\x00end"
+io.write_file("tests/_binary_roundtrip.tmp", payload)
+string back = io.read_file("tests/_binary_roundtrip.tmp")
+print(back.len())
+print(back == payload)
+print(back[-3:])
+io.write_file("tests/_binary_roundtrip.tmp", "")
+
+# --- strings built in loops (exercises the GC) ---
+string acc = ""
+for (int i = 0; i < 200; i = i + 1):
+    acc = acc + integer.toString(i % 10)
+print(acc.len())
+print(acc[0:10])
+print(acc[-10:])

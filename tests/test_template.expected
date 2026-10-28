@@ -1,0 +1,55 @@
+Hello, Ann!
+&lt;b&gt;&quot;Tom&quot; &amp; &#39;Jerry&#39;&lt;/b&gt;
+<b>bold</b>
+42 2.5 true 3.0
+&lt;a href=&#39;x&#39;&gt;&amp;&lt;/a&gt;
+literal {{ not a tag }}
+ABC
+yes
+known
+unset
+[0:a first][1:b][2:c last]
+none
+ann=31 bob=25 
+1,2;3,4,5;
+Ann has 2 lines; first total 500
+9 2 2.5 -3 abcd x
+Lamp: sold out
+HEY!!! even 1!2!
+<nav>Home</nav>
+<main>Welcome</main>
+
+a
+shown
+b
+<string>:1:7: an {{#if}} condition must be a bool, got int
+<string>:1:1: {{#each}} needs a list or a map, got string
+<string>:1:3: no value named 'missing' (it is not in the data map or a loop variable)
+<string>:1:8: 'user' has no key 'nmae'
+<string>:1:1: cannot output list; use {{#each}} to output its items
+<string>:1:1: the value is void (nothing to output); check for void with {{#if x != void}}
+<string>:1:9: Operator '+' cannot be applied to int and string.
+<string>:1:9: cannot read .name of int (only maps and objects have fields)
+<string>:1:8: list index 5 is out of range (length 1)
+<string>:1:3: @index is only available inside {{#each}}
+<string>:1:3: no helper named 'undefined_helper' (register it with template.helper("undefined_helper", function))
+<string>:1:3: Type mismatch: argument 1 ('text') of 'shout' expects string, got int.
+<string>:1:5: Division by zero.
+<string>:1:1: {{#if}} is never closed with {{/if}}
+<string>:1:1: {{/if}} without a matching opening block
+<string>:1:11: {{/each}} does not belong to the {{#if}} opened at line 1
+<string>:1:14: expected 'as' and a variable name: {{#each items as item}}
+<string>:1:1: unknown block tag '#unless' (use #if or #each)
+<string>:1:1: empty tag {{}}
+<string>:1:1: '{{' is never closed with '}}'
+<string>:1:6: expected a value
+<string>:1:3: unknown loop variable '@nope' (use @index, @first or @last)
+<string>:1:9: templates can only call len(); use a helper for other functions
+<string>:1:18: {{else}} has already been used in this {{#if}}; expected {{/if}}
+<string>:2:23: expected a variable name after 'as'
+tests/templates/typo.html:5:8: 'user' has no key 'nmae'
+true
+template.load(): could not read 'tests/templates/does_not_exist.html'.
+<string>:1:1: partial 'missing_partial' not found (looked for ./missing_partial.html)
+render() takes one argument: a map of values, e.g. render({"title": t}).
+helper(): the second argument must be a function, got int.

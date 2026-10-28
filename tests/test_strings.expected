@@ -1,0 +1,56 @@
+6
+5
+0
+0
+h
+o
+d
+w
+rescued: String index 11 out of range (length 11).
+rescued: String index -12 out of range (length 11).
+hello
+world
+hello
+world
+hello
+0
+0
+hello world
+hello world
+rescued: Strings are immutable; build a new string instead (e.g. with slicing and +), or use a buffer.
+Jello world
+hello world
+tab:[	] quote:["] single:['] backslash:[\]
+ABC
+café
+4
+1
+4
+3
+3
+5
+c
+3
+true
+false
+false
+true
+true
+true
+10
+padded|
+HELLO hello
+4
+a+b++c
+5
+é
+h-é-l-l-o
+true
+true
+stopping
+8
+true
+end
+200
+0123456789
+0123456789

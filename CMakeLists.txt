@@ -31,16 +31,31 @@ option(PITH_GUI_WAYLAND "Build raylib with the native Wayland backend instead of
 
 # Core interpreter: tokenizer -> parser -> resolver -> tree-walking interpreter.
 set(PITH_SOURCES main.c tokenizer.c parser.c interpreter.c repl.c gc.c resolver.c pith_string.c types.c
-    native_object.c)
+    native_object.c pith_buffer.c)
 
 # Native library modules (importable with `import "name"`) live in lib/.
 list(APPEND PITH_SOURCES lib/io_module.c lib/sys_module.c lib/time_module.c lib/http_module.c lib/json_module.c
-    lib/regex_module.c lib/encoding_module.c lib/crypto_module.c lib/sha256.c)
+    lib/regex_module.c lib/encoding_module.c lib/crypto_module.c lib/sha256.c lib/sqlite_module.c
+    lib/template_module.c)
 if(PITH_ENABLE_GUI)
     list(APPEND PITH_SOURCES lib/gui.c)
 endif()
 
 add_executable(pith_lang ${PITH_SOURCES})
+
+# SQLite, vendored as its official single-file amalgamation (see
+# third_party/sqlite/README.md for the version and the reasons for each option).
+# Built as its own library so its (third-party) warnings stay out of our build.
+add_library(pith_sqlite STATIC third_party/sqlite/sqlite3.c)
+target_include_directories(pith_sqlite PUBLIC ${CMAKE_SOURCE_DIR}/third_party/sqlite)
+target_compile_definitions(pith_sqlite PRIVATE
+    SQLITE_THREADSAFE=0          # the interpreter is single-threaded
+    SQLITE_OMIT_LOAD_EXTENSION   # no native extensions loaded from SQL (and no dlopen dependency)
+    SQLITE_DQS=0)                # "double quotes" are always identifiers, never strings
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(pith_sqlite PRIVATE -w)
+endif()
+target_link_libraries(pith_lang pith_sqlite)
 
 # Where `import` finds the standard library's .pith files, so scripts can be run
 # from any directory. Overridable at run time with the PITH_STDLIB variable.

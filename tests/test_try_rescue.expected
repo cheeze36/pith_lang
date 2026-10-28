@@ -1,0 +1,33 @@
+rescued: boom
+rescued: Division by zero.
+rescued: Modulo by zero.
+rescued without a name
+body ok
+else ran
+finally ran
+rescued: bad
+finally ran
+rescued: bottom reached
+5
+safe_divide: Division by zero.
+-1
+cleanup before return
+returned
+loop body 0
+loop finally 0
+loop finally 1
+loop finally 2
+inner finally
+outer rescued: second from rescue
+finally without rescue
+outer rescued: passes through
+body ok
+outer rescued: from else
+re-raised: original
+total 6
+in rescue: inner
+after: outer e
+50
+skipped: Division by zero.
+20
+done

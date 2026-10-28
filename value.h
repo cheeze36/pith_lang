@@ -29,6 +29,7 @@ typedef struct PithInstance PithInstance;
 typedef struct BoundMethod BoundMethod;
 typedef struct ObjString ObjString;
 typedef struct NativeObject NativeObject;
+typedef struct Buffer Buffer;
 
 /**
  * @brief Function pointer type for native built-in functions.
@@ -62,8 +63,10 @@ typedef enum
     VAL_INSTANCE, // Instance of a class
     VAL_BOUND_METHOD, // Method bound to an instance
     VAL_NATIVE_OBJECT, // C-backed object with a native class (see native_object.h)
+    VAL_BUFFER, // Mutable byte buffer (see pith_buffer.h)
     VAL_BREAK, // Internal: Break signal
-    VAL_CONTINUE // Internal: Continue signal
+    VAL_CONTINUE, // Internal: Continue signal
+    VAL_RETURN_VOID // Internal: `return` with no value (or a void value); becomes void when the call ends
 } ValueType;
 
 // --- Garbage Collection Types ---
@@ -84,7 +87,8 @@ typedef enum
     OBJ_STRUCT_INSTANCE,
     OBJ_ENV,
     OBJ_STRING,
-    OBJ_NATIVE
+    OBJ_NATIVE,
+    OBJ_BUFFER
 } ObjType;
 
 /**
@@ -114,6 +118,7 @@ struct Value
         double float_val; // VAL_FLOAT (64-bit IEEE double)
         ObjString *string; // VAL_STRING; see AS_CSTRING / string_new() in pith_string.h
         NativeObject *native; // VAL_NATIVE_OBJECT; see native_object.h
+        Buffer *buffer; // VAL_BUFFER; see pith_buffer.h
         NativeFn native_fn;
         Func *func;
         Module *module;
@@ -128,6 +133,24 @@ struct Value
 };
 
 // --- Heap Allocated Objects (GC Managed) ---
+
+/**
+ * @brief A mutable, growable sequence of bytes: Pith's `buffer` type (see pith_buffer.h).
+ *
+ * `length` bytes of `data` are in use and `capacity` are allocated. After
+ * `buffer.free()` the bytes are released and `is_freed` is set, but this object
+ * itself stays valid (it is only reclaimed by the GC once unreachable), so any
+ * later use through any reference is detected and reported instead of touching
+ * released memory.
+ */
+struct Buffer
+{
+    ObjHeader obj;
+    char *data; // NULL when capacity is 0 or after free()
+    int length; // Bytes in use
+    int capacity; // Bytes allocated
+    int is_freed; // Set by free(); every operation checks it
+};
 
 /**
  * @brief A Pith value backed by C data, e.g. a compiled Regex (see native_object.h).

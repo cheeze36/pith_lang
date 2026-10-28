@@ -1,0 +1,125 @@
+###
+# Tests for raw strings and the regex module: matching, groups, iteration,
+# replace/split, flags, UTF-8, errors, and Regex / Match as typed native objects.
+###
+
+import "regex"
+
+# --- raw strings are ordinary strings with no escape processing ---
+string pattern = r"\d+\.\d+"
+print(pattern)
+print(pattern.len())
+print(r#"quote " inside"#)
+print(r"" == "")
+
+# --- compile, find, groups ---
+Regex date = regex.compile(r"(?<year>\d{4})-(?<month>\d\d)-(?<day>\d\d)")
+print(date.pattern())
+print(date.group_count())
+Match m = date.find("released 2026-10-23, patched 2026-11-01")
+print(m.text())
+print(m.group(0) == m.text())
+print(m.group(1) + " " + m.group("month") + " " + m.group("day"))
+print(str(m.start()) + ".." + str(m.end()))
+print(str(m.start("day")) + ".." + str(m.end(3)))
+print(m.groups())
+print(m.named())
+
+# --- no match is void (Match is a class-like type) ---
+Match none = date.find("no dates")
+print(none == void)
+print(date.test("on 1999-12-31"))
+
+# --- optional groups that did not take part ---
+Match partial = regex.compile(r"(a)(b)?(c)").find("ac")
+print(partial.groups())
+print(partial.start(2))
+
+# --- find_all returns list<Match>; foreach with a typed variable ---
+list<Match> all = regex.compile(r"\w+").find_all("one two  three")
+print(all.len())
+foreach (Match word in all):
+    print(word.text() + "@" + str(word.start()))
+print(regex.compile(r"a*").find_all("baaa").len())
+
+# --- replace and split ---
+print(date.replace("2026-10-23 / 2025-01-02", "$day.$month.${year}"))
+print(regex.compile(r"(\w+)@(\w+)").replace("ann@home bob@work", "$2:$1"))
+print(regex.compile(r"\d").replace("a1b22", "#"))
+print(regex.compile("x").replace("no match", "y"))
+print(regex.compile(r"\$").replace("cost: 5$", "$$ USD"))
+print(regex.compile(r"\s*[,;]\s*").split("a , b;c ,  d"))
+print(regex.compile(",").split("a,,b,"))
+
+# --- greedy vs lazy, alternation priority ---
+print(regex.compile(r"<.+>").find("<b>bold</b>").text())
+print(regex.compile(r"<.+?>").find("<b>bold</b>").text())
+print(regex.compile(r"a|ab").find("ab").text())
+print(regex.compile(r"\d{2,3}").find("12345").text())
+print(regex.compile(r"\d{2,3}?").find("12345").text())
+
+# --- anchors, boundaries, flags ---
+print(regex.compile(r"^\d+$").test("12345"))
+print(regex.compile(r"^\d+$").test("123a"))
+print(regex.compile(r"\bcat\b").find_all("cat concat cat.").len())
+print(regex.compile(r"(?i)hello").find("Say HeLLo").text())
+print(regex.compile(r"(?m)^\w+$").find_all("one\ntwo\nthree").len())
+print(regex.compile(r"a.b").test("a\nb"))
+print(regex.compile(r"(?s)a.b").test("a\nb"))
+
+# --- UTF-8: . and classes match whole characters; offsets are bytes ---
+Match accent = regex.compile(r"caf.").find("un café")
+print(accent.text())
+print(str(accent.start()) + ".." + str(accent.end()))
+print(regex.compile(r"^.{4}$").test("café"))
+print(regex.compile(r"[é-ê]+").find("xéêy").text())
+
+# --- escape ---
+string user_input = "1+1=2? (yes)"
+print(regex.escape(user_input))
+print(regex.compile(regex.escape(user_input)).test("is 1+1=2? (yes)"))
+
+# --- linear time: no catastrophic backtracking ---
+string long = ""
+for (int i = 0; i < 2000; i = i + 1):
+    long = long + "a"
+print(regex.compile(r"(a+)+$").test(long + "!"))
+
+# --- invalid patterns raise errors naming the problem ---
+list<string> bad = [r"(abc", r"abc)", r"[a-", r"a**", r"*a", r"(?=x)", r"\1", r"[z-a]", r"a{3,1}", r"\q"]
+foreach (string b in bad):
+    try:
+        regex.compile(b)
+        print("accepted: " + b)
+    rescue e:
+        print(e)
+
+# --- type system integration ---
+try:
+    Regex wrong = "not a regex"
+rescue e:
+    print(e)
+try:
+    Match wrong_match = date
+rescue e:
+    print(e)
+try:
+    date.find(42)
+rescue e:
+    print(e)
+try:
+    m.group(9)
+rescue e:
+    print(e)
+try:
+    m.group("nope")
+rescue e:
+    print(e)
+try:
+    date.nope()
+rescue e:
+    print(e)
+print(date == date)
+print(date == regex.compile(date.pattern()))
+print(date)
+print(m)

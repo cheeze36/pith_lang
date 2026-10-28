@@ -1,0 +1,17 @@
+/* Minimal styling for the Pith blog example. */
+body { font-family: system-ui, sans-serif; max-width: 46rem; margin: 0 auto; padding: 0 1rem; line-height: 1.55; color: #222; }
+header.site, footer.site { display: flex; justify-content: space-between; align-items: center; padding: 1rem 0; border-bottom: 1px solid #ddd; }
+footer.site { border-top: 1px solid #ddd; border-bottom: none; margin-top: 3rem; color: #666; font-size: 0.9rem; }
+.brand { font-weight: bold; font-size: 1.2rem; text-decoration: none; color: #222; }
+nav a, nav .user { margin-left: 1rem; }
+.meta { color: #666; font-size: 0.9rem; }
+.summary { border-bottom: 1px solid #eee; padding: 0.5rem 0; }
+.error { background: #fde8e8; border: 1px solid #f5a5a5; padding: 0.5rem 0.75rem; }
+.empty { color: #666; font-style: italic; }
+form.inline { display: inline; }
+form.stacked label { display: block; margin: 0.75rem 0; }
+form.stacked input, form.stacked textarea, #comments textarea { width: 100%; box-sizing: border-box; font: inherit; }
+button { font: inherit; cursor: pointer; }
+button.danger { color: #b00; }
+.comment { border-left: 3px solid #ddd; padding-left: 0.75rem; margin: 1rem 0; }
+.pages { display: flex; justify-content: space-between; margin-top: 1.5rem; }
